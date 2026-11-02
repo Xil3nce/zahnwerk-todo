@@ -1,0 +1,29 @@
+# Zahnwerk – gemeinsame ToDo-App (Android)
+
+App auf Deutsch, Sideload-APK für zwei Personen, keine kostenpflichtigen Dienste.
+
+## Stack
+- Angular 22, Capacitor 8 (minSdk 24, target 36), kein Ionic
+- Lokal: Dexie (IndexedDB) mit Outbox; Backend: Supabase Free (Postgres, Auth, RLS, Edge Functions, pg_cron)
+- Push: `@capacitor-firebase/messaging`, Versand aus `supabase/functions/push-dispatch` über FCM HTTP v1
+- `firebase` JS bleibt auf 12.x (Peer des Plugins)
+
+## Befehle
+- `npm test` – Unit-Tests (Vitest)
+- `npm run build` – Web-Build
+- `powershell -File scripts/build-apk.ps1` – signierte Release-APK
+- `npx supabase db push` – Migrationen einspielen
+- `npx supabase functions deploy push-dispatch --no-verify-jwt`
+
+## Konventionen
+- Schema nur über neue Dateien in `supabase/migrations/`; nie alte Migrationen ändern.
+- Clients schreiben Aufgabendaten nur über `sync_push`; `server_seq` ist der Pull-Cursor, nicht `updated_at`.
+- Last-write-wins: pro Feld bei `todos`, pro Datensatz bei `subtasks`/`categories`; Kommentare unveränderlich.
+- Kategorien und Unteraufgaben immer als vollständigen Datensatz in die Outbox schreiben.
+- `due_date` ist ein reines Datum nach Europe/Berlin; Logik in `src/app/core/due.ts`.
+- `assignee_id = null` bedeutet „Beide“.
+- Farben und Abstände nur über CSS-Variablen in `src/styles.scss`.
+
+## Secrets
+Nie committen, nie im Chat wiederholen: Service-Account-JSON, Keystore, Passwörter, `google-services.json`.
+Keystore und Key liegen unter `D:\CLAUDE\Secrets\zahnwerk-todo\`.

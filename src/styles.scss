@@ -1,0 +1,390 @@
+@import '@fontsource/zilla-slab/400.css';
+@import '@fontsource/zilla-slab/600.css';
+@import '@fontsource/cinzel/600.css';
+
+// Design-Tokens. Alle Farben nur hier; Kontraste prueft scripts/check-contrast.mjs.
+:root {
+  color-scheme: light;
+  --bg: #efe2c6;
+  --surface: #fbf4e3;
+  --surface-2: #e8d7b4;
+  --text: #2b1d10;
+  --muted: #5a4630;
+  --primary: #744a10;
+  --on-primary: #fff8e7;
+  --accent: #8a3d1a;
+  --danger: #8e1b12;
+  --border: #7a5c2e;
+  --rivet: #a97c2f;
+  --shadow: 0 2px 0 rgb(60 35 10 / 35%);
+  --radius: 8px;
+  --gap: 12px;
+  --font-body: 'Zilla Slab', Georgia, serif;
+  --font-head: 'Cinzel', 'Zilla Slab', Georgia, serif;
+}
+
+@mixin dark {
+  color-scheme: dark;
+  --bg: #1b140e;
+  --surface: #2a2017;
+  --surface-2: #3a2c1f;
+  --text: #f2e6cf;
+  --muted: #cdb996;
+  --primary: #d9a441;
+  --on-primary: #1b140e;
+  --accent: #e8976a;
+  --danger: #ff9c8c;
+  --border: #9a7a45;
+  --rivet: #b98d3f;
+  --shadow: 0 2px 0 rgb(0 0 0 / 50%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    @include dark;
+  }
+}
+:root[data-theme='dark'] {
+  @include dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 1.0625rem/1.45 var(--font-body);
+}
+
+h1,
+h2 {
+  font-family: var(--font-head);
+  font-weight: 600;
+  color: var(--accent);
+  margin: 0.25em 0 0.5em;
+  letter-spacing: 0.02em;
+}
+h1 {
+  font-size: 1.5rem;
+}
+h2 {
+  font-size: 1.125rem;
+}
+a {
+  color: var(--accent);
+}
+p {
+  margin: 0.25em 0;
+}
+
+.page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: calc(16px + env(safe-area-inset-top)) 16px calc(96px + env(safe-area-inset-bottom));
+}
+
+.card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: var(--gap) calc(var(--gap) + 6px);
+  margin: var(--gap) 0;
+  // Nieten in den Ecken: dekorativ und unaufdringlich.
+  background-image:
+    radial-gradient(circle 2.5px at 7px 7px, var(--rivet) 98%, transparent),
+    radial-gradient(circle 2.5px at calc(100% - 7px) 7px, var(--rivet) 98%, transparent),
+    radial-gradient(circle 2.5px at 7px calc(100% - 7px), var(--rivet) 98%, transparent),
+    radial-gradient(circle 2.5px at calc(100% - 7px) calc(100% - 7px), var(--rivet) 98%, transparent);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+.row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--gap);
+}
+.between {
+  justify-content: space-between;
+  align-items: center;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+label {
+  display: block;
+  font-weight: 600;
+}
+input:not([type='checkbox']),
+select,
+textarea {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 4px;
+  padding: 8px 10px;
+  font: 400 1rem var(--font-body);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 0;
+  padding: var(--gap);
+}
+legend {
+  font-weight: 600;
+  padding: 0 6px;
+}
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button,
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 14px;
+  font: 600 1rem var(--font-body);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-decoration: none;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+button.primary {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+button.danger {
+  color: var(--danger);
+  background: transparent;
+  border-color: var(--danger);
+  margin-top: 24px;
+}
+
+.segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.segmented button {
+  flex: 1;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface);
+}
+.segmented button + button {
+  border-left: 1px solid var(--border);
+}
+.segmented button.active,
+.chip.active {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: var(--gap);
+}
+.chip {
+  border-radius: 999px;
+}
+
+.filters summary {
+  min-height: 28px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.filters .stack {
+  margin-top: var(--gap);
+}
+
+.todo-list,
+.plain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.todo {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+}
+.todo a {
+  flex: 1;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+.todo strong {
+  display: block;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.done strong,
+.check.done {
+  text-decoration: line-through;
+}
+.meta {
+  display: block;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+.overdue {
+  color: var(--danger);
+  font-weight: 600;
+}
+.empty {
+  padding: 32px 0;
+  text-align: center;
+  color: var(--muted);
+}
+.pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.notice {
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-left: 4px solid var(--accent);
+  border-radius: 4px;
+}
+.error {
+  color: var(--danger);
+  font-weight: 600;
+}
+.sync-hint {
+  text-align: center;
+  color: var(--muted);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-weight: 400;
+}
+input[type='checkbox'] {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+.gear-check {
+  width: 28px;
+  height: 28px;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+.facts dt {
+  font-weight: 600;
+}
+.facts dd {
+  margin: 0;
+  min-width: 0;
+}
+.facts .meta {
+  display: inline;
+}
+
+.stats {
+  width: 100%;
+  border-collapse: collapse;
+}
+.stats th,
+.stats td {
+  padding: 8px 4px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.stats tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  font: 600 2rem/1 var(--font-body);
+  color: var(--on-primary);
+  background: var(--primary);
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  box-shadow: var(--shadow);
+  text-decoration: none;
+}
+
+.tabbar {
+  position: fixed;
+  inset: auto 0 0;
+  display: flex;
+  background: var(--surface-2);
+  border-top: 2px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.tabbar a {
+  flex: 1;
+  min-width: 0;
+  padding: 16px 2px;
+  text-align: center;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+}
+.tabbar a.active {
+  color: var(--on-primary);
+  background: var(--primary);
+}
+
+.login {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 48px;
+}
+.login form {
+  width: 100%;
+}
+.login-gear {
+  color: var(--primary);
+}
