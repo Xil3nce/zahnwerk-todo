@@ -2,6 +2,8 @@
 
 Passwörter und Schlüssel nie in den Chat oder ins Repo schreiben. Alle Befehle im Ordner `zahnwerk-todo` ausführen.
 
+In PowerShell `npx.cmd` statt `npx` verwenden: `npx` ist bei gesperrter Skriptausführung blockiert.
+
 ## 1. Android SDK
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install-sdk.ps1
@@ -15,9 +17,9 @@ Lizenzen lesen und mit `y` bestätigen.
 4. Project URL und Publishable Key in `src/app/core/config.ts` eintragen.
 5. Verbinden und Schema einspielen:
 ```powershell
-npx supabase login
-npx supabase link --project-ref DEINE-PROJECT-REF
-npx supabase db push
+npx.cmd supabase login
+npx.cmd supabase link --project-ref DEINE-PROJECT-REF
+npx.cmd supabase db push
 ```
 6. Im *SQL Editor* ausführen (E-Mail-Adressen anpassen):
 ```sql
@@ -28,12 +30,11 @@ select private.bootstrap_household('Haushalt', 'freddy@example.com', 'Freddy', '
 1. In der [Firebase Console](https://console.firebase.google.com) ein Projekt anlegen, Analytics aus, Spark-Plan beibehalten.
 2. Android-App mit Paketname `de.zahnwerk.todo` hinzufügen, `google-services.json` nach `android/app/` legen.
 3. *Projekteinstellungen → Dienstkonten → Neuen privaten Schlüssel generieren*, Datei nach `D:\CLAUDE\Secrets\zahnwerk-todo\` legen.
-4. Secrets setzen und Function veröffentlichen:
+4. Secrets setzen (Function und Vault) und Function veröffentlichen:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\set-push-secrets.ps1 -ProjectUrl https://DEINE-REF.supabase.co
-npx supabase functions deploy push-dispatch --no-verify-jwt
+npx.cmd supabase functions deploy push-dispatch --no-verify-jwt --use-api
 ```
-5. Das SQL aus der Zwischenablage im *SQL Editor* ausführen.
 
 ## 4. Keep-alive
 Im GitHub-Repo unter *Settings → Secrets and variables → Actions* anlegen: `SUPABASE_URL` und `SUPABASE_PUBLISHABLE_KEY`. Danach unter *Actions → Supabase Keep-alive → Run workflow* einmal testen.
@@ -49,5 +50,5 @@ Supabase schickt etwa eine Woche vorher eine Warnmail. Pausiert es, im Dashboard
 ## Backup
 Der Free-Plan hat keine automatischen Backups. Gelegentlich sichern (das Ziel liegt außerhalb des Repos):
 ```powershell
-npx supabase db dump --data-only -f D:\CLAUDE\Secrets\zahnwerk-todo\backup.sql
+npx.cmd supabase db dump --data-only -f D:\CLAUDE\Secrets\zahnwerk-todo\backup.sql
 ```

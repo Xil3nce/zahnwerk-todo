@@ -8,9 +8,11 @@ if (-not (Test-Path 'android\app\google-services.json')) { throw 'android\app\go
 if (-not (Test-Path (Join-Path $SecretsDir 'keystore.properties'))) { throw 'Keystore fehlt: scripts\create-keystore.ps1 ausfuehren' }
 if (Select-String -Path 'src\app\core\config.ts' -SimpleMatch 'DEIN-PROJEKT' -Quiet) { throw 'src\app\core\config.ts ist noch nicht ausgefuellt' }
 
-npm run build
+# Ab hier zaehlen die Exit-Codes: Warnungen auf stderr sollen den Build nicht abbrechen.
+$ErrorActionPreference = 'Continue'
+npm.cmd run build
 if ($LASTEXITCODE -ne 0) { throw 'Web-Build fehlgeschlagen' }
-npx cap sync android
+npx.cmd cap sync android
 if ($LASTEXITCODE -ne 0) { throw 'cap sync fehlgeschlagen' }
 
 Push-Location android
