@@ -17,6 +17,8 @@ export interface Category {
   id: string;
   name: string;
   sort_order: number;
+  /** #rrggbb aus CATEGORY_COLORS oder null; fehlt bei Daten aus App-Versionen vor 1.0.4. */
+  color?: string | null;
   deleted_at: string | null;
 }
 

@@ -19,7 +19,7 @@ import { Store } from '../core/store';
           <dt>Fällig</dt>
           <dd>{{ due() }}@if (t.due_date) { <span class="meta"> ({{ format(t.due_date) }})</span> }</dd>
           <dt>Zuständig</dt><dd>{{ name(t.assignee_id) ?? 'Beide' }}</dd>
-          <dt>Kategorie</dt><dd>{{ store.categoryName(t.category_id) }}</dd>
+          <dt>Kategorie</dt><dd>@if (store.categoryColor(t.category_id); as color) { <span class="swatch small" aria-hidden="true" [style.background]="color"></span> }{{ store.categoryName(t.category_id) }}</dd>
           <dt>Zeitaufwand</dt><dd>{{ effort(t.effort_minutes) || 'Keine Angabe' }}</dd>
           <dt>Status</dt>
           <dd>

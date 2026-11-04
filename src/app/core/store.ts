@@ -214,10 +214,16 @@ export class Store {
     return this.categories().find((c) => c.id === id)?.name ?? 'Ohne Kategorie';
   }
 
+  categoryColor(id: string | null): string | null {
+    return this.categories().find((c) => c.id === id)?.color ?? null;
+  }
+
   private async putCategory(row: Category): Promise<void> {
     await this.db.transaction('rw', this.db.categories, this.db.outbox, async () => {
       await this.db.categories.put(row);
-      await this.record('category', row.id, { name: row.name, sort_order: row.sort_order, deleted_at: row.deleted_at });
+      await this.record('category', row.id, {
+        name: row.name, sort_order: row.sort_order, color: row.color ?? null, deleted_at: row.deleted_at,
+      });
     });
     this.afterChange();
   }
@@ -229,6 +235,10 @@ export class Store {
 
   renameCategory(row: Category, name: string): Promise<void> {
     return this.putCategory({ ...row, name });
+  }
+
+  setCategoryColor(row: Category, color: string | null): Promise<void> {
+    return this.putCategory({ ...row, color });
   }
 
   deleteCategory(row: Category): Promise<void> {

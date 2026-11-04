@@ -79,7 +79,8 @@ const PULL_THRESHOLD = 70;
 
       <ul class="todo-list">
         @for (todo of visible(); track todo.id) {
-          <li class="card todo" [class.done]="todo.status === 'done'">
+          <li class="card todo" [class.done]="todo.status === 'done'" [class.tinted]="store.categoryColor(todo.category_id)"
+            [style.--category-color]="store.categoryColor(todo.category_id)">
             <input type="checkbox" class="gear-check" [checked]="todo.status === 'done'"
               [attr.aria-label]="todo.title + (todo.status === 'done' ? ' wieder öffnen' : ' erledigen')"
               (change)="store.toggleDone(todo)" />
@@ -87,7 +88,9 @@ const PULL_THRESHOLD = 70;
               <strong>{{ todo.title }}</strong>
               <span class="meta" [class.overdue]="isOverdue(todo)">{{ due(todo) }}</span>
               <span class="meta">
-                {{ assignee(todo) }} · {{ store.categoryName(todo.category_id) }}@if (todo.effort_minutes) { · {{ effort(todo.effort_minutes) }} }
+                {{ assignee(todo) }} ·
+                @if (store.categoryColor(todo.category_id); as color) { <span class="swatch small" aria-hidden="true" [style.background]="color"></span> }
+                {{ store.categoryName(todo.category_id) }}@if (todo.effort_minutes) { · {{ effort(todo.effort_minutes) }} }
               </span>
             </a>
           </li>

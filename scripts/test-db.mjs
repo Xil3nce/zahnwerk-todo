@@ -186,6 +186,23 @@ await test('Pull: Cursor liefert nur Neues und auch Geloeschtes', async () => {
   assert.equal(b.todos[0].field_versions, undefined);
 });
 
+await test('Kategorie-Farbe: wird gespeichert, alte Clients ohne Farbe loeschen sie nicht, Unsinn wird abgelehnt', async () => {
+  const c = uuid();
+  await push(F, op('category', c, { name: 'Bunt', sort_order: 5, color: '#cc0066', deleted_at: null }));
+  // Wie App 1.0.x: vollstaendiger Datensatz, aber ohne "color".
+  await push(M, op('category', c, { name: 'Bunt umbenannt', sort_order: 5, deleted_at: null }));
+  const [row] = await rows('select name, color from public.categories where id = $1', [c]);
+  assert.deepEqual(row, { name: 'Bunt umbenannt', color: '#cc0066' });
+  const pulled = (await pull(M)).categories.find((k) => k.id === c);
+  assert.equal(pulled.color, '#cc0066');
+
+  await push(F, op('category', c, { name: 'Bunt umbenannt', sort_order: 5, color: null, deleted_at: null }));
+  assert.equal((await rows('select color from public.categories where id = $1', [c]))[0].color, null);
+
+  const bad = await push(F, op('category', c, { name: 'X', sort_order: 5, color: 'red', deleted_at: null }));
+  assert.equal(bad.rejected.length, 1);
+});
+
 await test('Kategorie und Unteraufgabe: aelterer Datensatz verliert', async () => {
   const c = uuid();
   await push(F, op('category', c, { name: 'Neu', sort_order: 9, deleted_at: null }, '2026-02-03T12:00:00Z'));

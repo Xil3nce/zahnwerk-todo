@@ -237,6 +237,57 @@ button.danger {
   align-items: center;
   gap: var(--gap);
 }
+/* Farbstreifen der Kategorie; die Kategorie steht zusaetzlich als Text daneben. */
+.todo.tinted {
+  border-left: 8px solid var(--category-color);
+}
+
+/* Farbpunkt mit Rand in Textfarbe: so bleiben auch helle Farben im hellen und dunkle im dunklen Modus sichtbar. */
+.swatch {
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--text);
+  vertical-align: middle;
+}
+.swatch.small {
+  width: 14px;
+  height: 14px;
+  border-width: 1px;
+  margin-right: 4px;
+  vertical-align: -1px;
+}
+.swatch.no-color {
+  background: repeating-linear-gradient(45deg, transparent 0 4px, var(--muted) 4px 6px);
+}
+.swatch-button,
+.palette-cell {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.palette {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 6px;
+  margin-top: var(--gap);
+}
+.palette-none {
+  grid-column: 1 / -1;
+}
+.palette-cell[aria-pressed='true'],
+.palette-none[aria-pressed='true'] {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+.palette-cell[aria-pressed='true'] .swatch {
+  border-width: 4px;
+}
+
 .todo a {
   flex: 1;
   min-width: 0;
