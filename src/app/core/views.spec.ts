@@ -76,11 +76,21 @@ describe('computeStats', () => {
       todo('2', { effort_minutes: 15 }),
       todo('3', { status: 'done', done_by: 'm', effort_minutes: 99 }),
       todo('4', { deleted_at: 'x', assignee_id: 'f', effort_minutes: 99 }),
-    ], profiles);
+    ], profiles, 'any', today);
     expect(stats).toEqual([
       { label: 'Freddy', openCount: 1, openMinutes: 30, doneCount: 0 },
       { label: 'Melina', openCount: 0, openMinutes: 0, doneCount: 1 },
       { label: 'Beide', openCount: 1, openMinutes: 15, doneCount: null },
     ]);
+  });
+  it('Faelligkeitsfilter zaehlt nur passende Aufgaben, auch bei Erledigten', () => {
+    const profiles = [{ id: 'f', display_name: 'Freddy' }] as Profile[];
+    const stats = computeStats([
+      todo('1', { assignee_id: 'f', due_date: today, effort_minutes: 30 }),
+      todo('2', { assignee_id: 'f', due_date: '2026-11-09', effort_minutes: 15 }),
+      todo('3', { assignee_id: 'f', status: 'done', done_by: 'f', due_date: today }),
+      todo('4', { assignee_id: 'f', status: 'done', done_by: 'f' }),
+    ], profiles, 'today', today);
+    expect(stats[0]).toEqual({ label: 'Freddy', openCount: 1, openMinutes: 30, doneCount: 1 });
   });
 });

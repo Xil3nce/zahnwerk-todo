@@ -102,8 +102,8 @@ export interface PersonStats {
   doneCount: number | null;
 }
 
-export function computeStats(todos: Todo[], profiles: Profile[]): PersonStats[] {
-  const live = todos.filter((t) => !t.deleted_at);
+export function computeStats(todos: Todo[], profiles: Profile[], due: DueFilter, today: string): PersonStats[] {
+  const live = todos.filter((t) => !t.deleted_at && matchesDue(t, due, today));
   const open = live.filter((t) => t.status === 'open');
   const sum = (list: Todo[]) => list.reduce((total, t) => total + (t.effort_minutes ?? 0), 0);
   const people = profiles.map((p) => {
