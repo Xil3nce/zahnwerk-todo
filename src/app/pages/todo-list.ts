@@ -4,7 +4,7 @@ import { RouterLink } from '@angular/router';
 import { formatEffort, relativeDue } from '../core/due';
 import { Todo } from '../core/models';
 import { Store } from '../core/store';
-import { DEFAULT_FILTERS, Filters, selectTodos, SortBy, View } from '../core/views';
+import { DEFAULT_FILTERS, dueOptions, Filters, selectTodos, SortBy, View } from '../core/views';
 
 const PULL_THRESHOLD = 70;
 
@@ -29,7 +29,7 @@ const PULL_THRESHOLD = 70;
 
       <div class="segmented" role="group" aria-label="Ansicht">
         @for (option of views; track option.id) {
-          <button type="button" [class.active]="view() === option.id" [attr.aria-pressed]="view() === option.id" (click)="view.set(option.id)">
+          <button type="button" [class.active]="view() === option.id" [attr.aria-pressed]="view() === option.id" (click)="selectView(option.id)">
             {{ option.label }}
           </button>
         }
@@ -54,12 +54,7 @@ const PULL_THRESHOLD = 70;
           </label>
           <label>Fälligkeit
             <select [ngModel]="filters().due" (ngModelChange)="setFilter('due', $event)">
-              <option value="any">Alle</option>
-              <option value="overdue">Überfällig</option>
-              <option value="today">Heute</option>
-              <option value="this_week">Diese Woche</option>
-              <option value="next_week">Nächste Woche</option>
-              <option value="none">Ohne Datum</option>
+              @for (option of dueOptions(); track option.id) { <option [value]="option.id">{{ option.label }}</option> }
             </select>
           </label>
           @if (view() === 'all') {
@@ -126,6 +121,14 @@ export class TodoList {
   );
   protected readonly filtersActive = computed(() => JSON.stringify(this.filters()) !== JSON.stringify(DEFAULT_FILTERS));
   protected readonly effort = formatEffort;
+
+  protected readonly dueOptions = computed(() => dueOptions(this.view()));
+
+  protected selectView(view: View): void {
+    this.view.set(view);
+    // Eine Faelligkeit, die es in der neuen Ansicht nicht gibt, wuerde unsichtbar weiterfiltern.
+    if (!this.dueOptions().some((o) => o.id === this.filters().due)) this.setFilter('due', 'any');
+  }
 
   protected setFilter<K extends keyof Filters>(key: K, value: Filters[K]): void {
     this.filters.update((f) => ({ ...f, [key]: value }));

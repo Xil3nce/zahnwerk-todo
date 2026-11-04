@@ -16,6 +16,34 @@ export interface Filters {
 
 export const DEFAULT_FILTERS: Filters = { person: 'any', category: 'any', due: 'any', status: 'open' };
 
+/** Faelligkeits-Optionen je Ansicht: Heute und Woche grenzen schon selbst ein, "any" heisst dort "alles in der Ansicht". */
+export function dueOptions(view: View): { id: DueFilter; label: string }[] {
+  switch (view) {
+    case 'today':
+      return [
+        { id: 'any', label: 'Heute und überfällig' },
+        { id: 'today', label: 'Nur heute' },
+        { id: 'overdue', label: 'Nur überfällig' },
+      ];
+    case 'week':
+      return [
+        { id: 'any', label: 'Ganze Woche und überfällig' },
+        { id: 'this_week', label: 'Ab heute bis Sonntag' },
+        { id: 'today', label: 'Nur heute' },
+        { id: 'overdue', label: 'Nur überfällig' },
+      ];
+    case 'all':
+      return [
+        { id: 'any', label: 'Alle' },
+        { id: 'overdue', label: 'Überfällig' },
+        { id: 'today', label: 'Heute' },
+        { id: 'this_week', label: 'Diese Woche' },
+        { id: 'next_week', label: 'Nächste Woche' },
+        { id: 'none', label: 'Ohne Datum' },
+      ];
+  }
+}
+
 export function matchesView(todo: Todo, view: View, today: string): boolean {
   if (view === 'all') return true;
   if (todo.status !== 'open' || !todo.due_date) return false;

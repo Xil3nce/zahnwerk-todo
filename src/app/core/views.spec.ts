@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Category, Profile, Todo } from './models';
-import { computeStats, DEFAULT_FILTERS, selectTodos } from './views';
+import { computeStats, DEFAULT_FILTERS, dueOptions, selectTodos } from './views';
 
 const today = '2026-11-04'; // Mittwoch
 const todo = (id: string, patch: Partial<Todo> = {}): Todo => ({
@@ -43,6 +43,15 @@ describe('selectTodos', () => {
     expect(run('this_week')).toEqual(['now', 'sun']);
     expect(run('next_week')).toEqual(['next']);
     expect(run('none')).toEqual(['nodate']);
+  });
+  it('Heute und Woche bieten nur Faelligkeiten an, die dort etwas zeigen koennen', () => {
+    const run = (view: 'today' | 'week', due: typeof DEFAULT_FILTERS.due) =>
+      ids(selectTodos(todos, view, { ...DEFAULT_FILTERS, due }, 'due', today, []));
+    expect(dueOptions('today').map((o) => o.id)).toEqual(['any', 'today', 'overdue']);
+    expect(run('today', 'today')).toEqual(['now']);
+    expect(run('today', 'overdue')).toEqual(['over']);
+    expect(dueOptions('week').map((o) => o.id)).toEqual(['any', 'this_week', 'today', 'overdue']);
+    expect(run('week', 'this_week')).toEqual(['now', 'sun']);
   });
   it('Personenfilter schliesst Beide ein, Melina sieht keine reine Freddy-Aufgabe', () => {
     const list = [todo('f', { assignee_id: 'freddy' }), todo('m', { assignee_id: 'melina' }), todo('b')];
