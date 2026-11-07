@@ -51,10 +51,13 @@ describe('Zeitfenster', () => {
   });
 });
 
-describe('Ansichten Spaeter und Erledigt', () => {
+describe('Ansichten Wichtig und Erledigt', () => {
   const list = [
     todo('normal', { due_date: today }),
     todo('ohne'),
+    todo('wichtig', { important: true }),
+    todo('wichtig-fertig', { important: true, status: 'done', done_at: '2026-11-01T10:00:00Z' }),
+    todo('idee-wichtig', { bucket: 'idea', important: true }),
     todo('spaeter', { bucket: 'later' }),
     todo('spaeter-fertig', { bucket: 'later', status: 'done', done_at: '2026-11-02T10:00:00Z' }),
     todo('idee', { bucket: 'idea' }),
@@ -62,25 +65,34 @@ describe('Ansichten Spaeter und Erledigt', () => {
     todo('fertig', { due_date: today, status: 'done', done_at: '2026-11-04T08:00:00Z' }),
     todo('weg', { status: 'done', done_at: '2026-11-04T09:00:00Z', deleted_at: '2026-11-04T09:30:00Z' }),
   ];
-  it('Alle laesst Ablage und Ideen aus', () => {
-    expect(ids(selectTodos(list, 'all', DEFAULT_FILTERS, 'due', today, []))).toEqual(['normal', 'ohne']);
-    expect(ids(selectTodos(list, 'all', { ...DEFAULT_FILTERS, status: 'any' }, 'due', today, []))).toEqual(['fertig', 'normal', 'ohne']);
+  it('Alle zeigt auch fruehere Spaeter-Aufgaben, aber keine Ideen', () => {
+    expect(ids(selectTodos(list, 'all', DEFAULT_FILTERS, 'due', today, []))).toEqual(['normal', 'ohne', 'spaeter', 'wichtig']);
+    expect(ids(selectTodos(list, 'all', { ...DEFAULT_FILTERS, status: 'any' }, 'due', today, [])))
+      .toEqual(['fertig', 'normal', 'ohne', 'spaeter', 'spaeter-fertig', 'wichtig', 'wichtig-fertig']);
   });
-  it('Heute und Woche zeigen keine abgelegten Aufgaben, auch nicht mit Datum', () => {
-    const odd = [todo('a', { bucket: 'later', due_date: today }), todo('b', { due_date: today })];
-    expect(ids(selectTodos(odd, 'today', DEFAULT_FILTERS, 'due', today, []))).toEqual(['b']);
-    expect(ids(selectTodos(odd, 'week', DEFAULT_FILTERS, 'due', today, []))).toEqual(['b']);
+  it('Heute und Woche zeigen fruehere Spaeter-Aufgaben mit Datum, Ideen nicht', () => {
+    const odd = [todo('a', { bucket: 'later', due_date: today }), todo('b', { due_date: today }), todo('c', { bucket: 'idea', due_date: today })];
+    expect(ids(selectTodos(odd, 'today', DEFAULT_FILTERS, 'due', today, []))).toEqual(['a', 'b']);
+    expect(ids(selectTodos(odd, 'week', DEFAULT_FILTERS, 'due', today, []))).toEqual(['a', 'b']);
   });
-  it('Spaeter zeigt nur offene abgelegte Aufgaben', () => {
-    expect(ids(selectTodos(list, 'later', DEFAULT_FILTERS, 'due', today, []))).toEqual(['spaeter']);
+  it('Wichtig zeigt nur offene wichtige Aufgaben ohne Ideen', () => {
+    expect(ids(selectTodos(list, 'important', DEFAULT_FILTERS, 'due', today, []))).toEqual(['wichtig']);
+    // Ein Statusfilter aus "Alle" wirkt hier nicht.
+    expect(ids(selectTodos(list, 'important', { ...DEFAULT_FILTERS, status: 'done' }, 'due', today, []))).toEqual(['wichtig']);
+  });
+  it('Filter "Nur wichtige" grenzt jede Ansicht ein', () => {
+    const only = { ...DEFAULT_FILTERS, important: 'only' as const };
+    const mixed = [todo('w', { due_date: today, important: true }), todo('n', { due_date: today })];
+    expect(ids(selectTodos(list, 'all', only, 'due', today, []))).toEqual(['wichtig']);
+    expect(ids(selectTodos(mixed, 'today', only, 'due', today, []))).toEqual(['w']);
   });
   it('Erledigt zeigt alles Abgehakte inkl. Ideen, zuletzt Erledigtes oben, Geloeschtes nie', () => {
-    expect(ids(selectTodos(list, 'done', DEFAULT_FILTERS, 'due', today, []))).toEqual(['fertig', 'idee-gemacht', 'spaeter-fertig']);
+    expect(ids(selectTodos(list, 'done', DEFAULT_FILTERS, 'due', today, []))).toEqual(['fertig', 'idee-gemacht', 'spaeter-fertig', 'wichtig-fertig']);
     // Ein Statusfilter aus "Alle" wirkt hier nicht.
-    expect(ids(selectTodos(list, 'done', { ...DEFAULT_FILTERS, status: 'open' }, 'important', today, []))).toEqual(['fertig', 'idee-gemacht', 'spaeter-fertig']);
+    expect(ids(selectTodos(list, 'done', { ...DEFAULT_FILTERS, status: 'open' }, 'important', today, []))).toEqual(['fertig', 'idee-gemacht', 'spaeter-fertig', 'wichtig-fertig']);
   });
-  it('Spaeter und Erledigt haben keinen Faelligkeitsfilter', () => {
-    expect(dueOptions('later')).toEqual([{ id: 'any', label: 'Alle' }]);
+  it('Wichtig bietet die Faelligkeiten von Alle, Erledigt keine', () => {
+    expect(dueOptions('important')).toEqual(dueOptions('all'));
     expect(dueOptions('done')).toEqual([{ id: 'any', label: 'Alle' }]);
   });
 });

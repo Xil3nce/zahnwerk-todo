@@ -12,7 +12,8 @@ const VIEW_KEY = 'zahnwerk.view';
 function savedView(): View {
   try {
     const v = sessionStorage.getItem(VIEW_KEY);
-    return v === 'today' || v === 'week' || v === 'all' || v === 'later' || v === 'done' ? v : 'today';
+    if (v === 'later') return 'important'; // gemerkte Ansicht aus Versionen mit Reiter "Spaeter"
+    return v === 'today' || v === 'week' || v === 'all' || v === 'important' || v === 'done' ? v : 'today';
   } catch {
     return 'today';
   }
@@ -66,7 +67,7 @@ function savedView(): View {
           }
         </div>
 
-        @if (view() === 'later') { <p class="meta">Aufgaben ohne Datum, die nicht in „Alle“ untergehen sollen.</p> }
+        @if (view() === 'important') { <p class="meta">Offene Aufgaben, die als wichtig markiert sind.</p> }
         @if (view() === 'done') { <p class="meta">Haken entfernen, um eine Aufgabe wieder zu öffnen.</p> }
 
         <details class="card filters">
@@ -90,6 +91,14 @@ function savedView(): View {
               <label>Fälligkeit
                 <select [ngModel]="filters().due" (ngModelChange)="setFilter('due', $event)">
                   @for (option of dueOptions(); track option.id) { <option [value]="option.id">{{ option.label }}</option> }
+                </select>
+              </label>
+            }
+            @if (view() !== 'important' && view() !== 'done') {
+              <label>Wichtig
+                <select [ngModel]="filters().important" (ngModelChange)="setFilter('important', $event)">
+                  <option value="any">Alle</option>
+                  <option value="only">Nur wichtige</option>
                 </select>
               </label>
             }
@@ -141,7 +150,7 @@ function savedView(): View {
         @if (view() === 'done') { <p><a routerLink="/papierkorb">Zum Papierkorb</a></p> }
       }
 
-      <a class="fab" [routerLink]="'/neu'" [queryParams]="view() === 'later' ? { ablage: 'spaeter' } : {}" aria-label="Neue Aufgabe">+</a>
+      <a class="fab" [routerLink]="'/neu'" [queryParams]="view() === 'important' ? { wichtig: '1' } : {}" aria-label="Neue Aufgabe">+</a>
     </div>
   `,
 })
@@ -154,7 +163,7 @@ export class TodoList {
     { id: 'today', label: 'Heute' },
     { id: 'week', label: 'Woche' },
     { id: 'all', label: 'Alle' },
-    { id: 'later', label: 'Später' },
+    { id: 'important', label: 'Wichtig' },
     { id: 'done', label: 'Erledigt' },
   ];
 
@@ -173,7 +182,7 @@ export class TodoList {
   protected readonly filtersActive = computed(() => JSON.stringify(this.filters()) !== JSON.stringify(DEFAULT_FILTERS));
   protected readonly emptyText = computed(() => {
     switch (this.view()) {
-      case 'later': return 'Nichts abgelegt.';
+      case 'important': return 'Nichts Wichtiges offen.';
       case 'done': return 'Noch nichts erledigt.';
       default: return 'Hier ist alles erledigt. Das Zahnwerk ruht.';
     }
@@ -216,7 +225,6 @@ export class TodoList {
       const who = this.store.profiles().find((p) => p.id === todo.done_by)?.display_name;
       return `Erledigt am ${formatDate(berlinParts(todo.done_at).date)}${who ? ' von ' + who : ''}`;
     }
-    if (todo.bucket === 'later' && !todo.due_date) return 'Später';
     if (todo.bucket === 'idea') return 'Idee';
     return relativeDue(todo.due_date, this.store.today(), todo.due_window);
   }

@@ -1,11 +1,12 @@
 import { addDays, endOfWeek } from './due';
 import { Category, Comment, Profile, Todo } from './models';
 
-/** Spaeter: Ablage ohne Datum; Erledigt: abgehakte Aufgaben und Ideen. */
-export type View = 'today' | 'week' | 'all' | 'later' | 'done';
+/** Wichtig: offene, als wichtig markierte Aufgaben; Erledigt: abgehakte Aufgaben und Ideen. */
+export type View = 'today' | 'week' | 'all' | 'important' | 'done';
 export type SortBy = 'due' | 'important' | 'category' | 'effort';
 export type DueFilter = 'any' | 'overdue' | 'today' | 'this_week' | 'next_week' | 'none';
 export type StatusFilter = 'open' | 'done' | 'any';
+export type ImportantFilter = 'any' | 'only';
 
 export interface Filters {
   /** Profil-ID, "both" oder "any". Eine Person sieht auch die Aufgaben fuer "Beide". */
@@ -13,9 +14,10 @@ export interface Filters {
   category: string;
   due: DueFilter;
   status: StatusFilter;
+  important: ImportantFilter;
 }
 
-export const DEFAULT_FILTERS: Filters = { person: 'any', category: 'any', due: 'any', status: 'open' };
+export const DEFAULT_FILTERS: Filters = { person: 'any', category: 'any', due: 'any', status: 'open', important: 'any' };
 
 /** Faelligkeits-Optionen je Ansicht: Heute und Woche grenzen schon selbst ein, "any" heisst dort "alles in der Ansicht". */
 export function dueOptions(view: View): { id: DueFilter; label: string }[] {
@@ -34,6 +36,7 @@ export function dueOptions(view: View): { id: DueFilter; label: string }[] {
         { id: 'overdue', label: 'Nur überfällig' },
       ];
     case 'all':
+    case 'important':
       return [
         { id: 'any', label: 'Alle' },
         { id: 'overdue', label: 'Überfällig' },
@@ -42,7 +45,6 @@ export function dueOptions(view: View): { id: DueFilter; label: string }[] {
         { id: 'next_week', label: 'Nächste Woche' },
         { id: 'none', label: 'Ohne Datum' },
       ];
-    case 'later':
     case 'done':
       return [{ id: 'any', label: 'Alle' }];
   }
@@ -59,13 +61,13 @@ export function matchesView(todo: Todo, view: View, today: string): boolean {
   switch (view) {
     case 'done':
       return todo.status === 'done';
-    case 'later':
-      return bucket === 'later';
+    case 'important':
+      return bucket !== 'idea' && !!todo.important;
     case 'all':
-      // Ablage und Ideen gehen in "Alle" nicht unter, sie haben eigene Listen.
-      return bucket === null;
+      // Ideen haben eine eigene Liste; die fruehere Ablage "Spaeter" gehoert wieder zu "Alle".
+      return bucket !== 'idea';
     default:
-      if (bucket !== null || todo.status !== 'open' || !todo.due_date) return false;
+      if (bucket === 'idea' || todo.status !== 'open' || !todo.due_date) return false;
       return todo.due_date <= (view === 'today' ? today : endOfWeek(today));
   }
 }
@@ -93,7 +95,7 @@ export function selectTodos(
   todos: Todo[], view: View, filters: Filters, sort: SortBy, today: string, categories: Category[],
 ): Todo[] {
   const categoryName = (id: string | null) => categories.find((c) => c.id === id && !c.deleted_at)?.name ?? '￿';
-  // Heute, Woche und Spaeter zeigen nur Offenes, Erledigt nur Erledigtes.
+  // Heute, Woche und Wichtig zeigen nur Offenes, Erledigt nur Erledigtes.
   const status = viewStatus(view, filters.status);
   const visible = todos.filter(
     (t) =>
@@ -104,6 +106,7 @@ export function selectTodos(
         (filters.person === 'both' ? t.assignee_id === null : t.assignee_id === null || t.assignee_id === filters.person)) &&
       (filters.category === 'any' ||
         (filters.category === 'none' ? categoryName(t.category_id) === '￿' : t.category_id === filters.category)) &&
+      (filters.important === 'any' || !!t.important) &&
       matchesDue(t, filters.due, today),
   );
   const byDue = (a: Todo, b: Todo) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999');

@@ -24,7 +24,7 @@ App auf Deutsch, Sideload-APK für zwei Personen, keine kostenpflichtigen Dienst
 - Kategorien und Unteraufgaben immer als vollständigen Datensatz in die Outbox schreiben.
 - `due_date` ist ein reines Datum nach Europe/Berlin; Logik in `src/app/core/due.ts`.
 - `assignee_id = null` bedeutet „Beide“.
-- `bucket`: `null` = normale Aufgabe, `later` = Ablage „Später“ (ohne Datum), `idea` = Ideen-Parkplatz; beide erscheinen nicht in „Alle“.
+- `bucket`: `null` = normale Aufgabe, `idea` = Ideen-Parkplatz (nicht in „Alle“); `later` ist Altbestand der früheren Ablage „Später“ und wird wie `null` behandelt (seit 1.0.7 kein Reiter mehr, stattdessen „Wichtig“ = offene Aufgaben mit `important`).
 - `due_window` (`week`/`month`): Zeitfenster; `due_date` ist dann das Fensterende, Folgeaufgaben rasten per `private.snap_window` ein.
 - Ruhezeiten 22–7 Uhr (Europe/Berlin) pro Profil (`quiet_hours`): `claim_notifications` hält zurück, morgens eine Sammelmeldung (`kind = 'digest'`).
 - Papierkorb: `deleted_at` bleibt 30 Tage wiederherstellbar; `private.cleanup()` löscht danach endgültig.

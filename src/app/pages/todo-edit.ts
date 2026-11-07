@@ -97,16 +97,13 @@ function sameValue(a: unknown, b: unknown): boolean {
           @for (p of windowPresets; track p.id) {
             <button type="button" class="chip" [class.active]="dueWindow() === p.window && dueDate() === date(p.id)" (click)="pickWindow(p.id, p.window)">{{ p.label }}</button>
           }
-          <button type="button" class="chip" [class.active]="!dueDate() && bucket() !== 'later'" (click)="pickNoDate(null)">Ohne Datum</button>
-          <button type="button" class="chip" [class.active]="bucket() === 'later'" (click)="pickNoDate('later')">Später</button>
+          <button type="button" class="chip" [class.active]="!dueDate()" (click)="pickNoDate(null)">Ohne Datum</button>
         </div>
         <label>Stichtag
           <input type="date" name="due" [ngModel]="dueWindow() ? null : dueDate()" (ngModelChange)="pickDate($event || null)" />
         </label>
         @if (dueDate(); as d) {
           <p class="meta">@if (dueWindow()) { {{ windowText() }}, spätestens }{{ format(d) }}</p>
-        } @else if (bucket() === 'later') {
-          <p class="meta">Landet in der Ablage „Später“ statt in „Alle“.</p>
         }
       </fieldset>
 
@@ -256,7 +253,10 @@ export class TodoEdit implements OnInit {
     this.id = this.route.snapshot.paramMap.get('id');
     const todo = this.id ? this.store.todo(this.id) : undefined;
     const ablage = this.route.snapshot.queryParamMap.get('ablage');
-    if (!todo) this.bucket.set(ablage === 'idee' ? 'idea' : ablage === 'spaeter' ? 'later' : null);
+    if (!todo) {
+      this.bucket.set(ablage === 'idee' ? 'idea' : null);
+      this.important.set(this.route.snapshot.queryParamMap.get('wichtig') === '1');
+    }
     if (todo) {
       this.important.set(!!todo.important);
       this.dueWindow.set(todo.due_window ?? null);

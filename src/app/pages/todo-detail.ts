@@ -123,7 +123,6 @@ export class TodoDetail {
   protected readonly comments = computed(() => this.store.commentsOf(this.id()));
   protected readonly due = computed(() => {
     const t = this.todo();
-    if (t?.bucket === 'later' && !t.due_date) return 'Später (abgelegt, ohne Datum)';
     return relativeDue(t?.due_date ?? null, this.store.today(), t?.due_window);
   });
 
