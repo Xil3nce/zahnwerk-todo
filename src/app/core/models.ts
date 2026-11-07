@@ -42,6 +42,8 @@ export interface Todo {
   /** Folgeaufgabe bzw. Vorgaenger einer Wiederholung; setzt nur der Server. */
   spawned_id?: string | null;
   recurred_from?: string | null;
+  /** Einmalige Erinnerung (ISO-Zeitpunkt); fehlt bei Daten aus App-Versionen vor 1.0.5. */
+  remind_at?: string | null;
 }
 
 export type RecurrenceUnit = 'day' | 'week' | 'month';
@@ -83,5 +85,5 @@ export interface OutboxOp {
 }
 
 export type TodoPatch = Partial<
-  Pick<Todo, 'title' | 'description' | 'category_id' | 'due_date' | 'assignee_id' | 'effort_minutes' | 'status' | 'deleted_at' | 'recurrence'>
+  Pick<Todo, 'title' | 'description' | 'category_id' | 'due_date' | 'assignee_id' | 'effort_minutes' | 'status' | 'deleted_at' | 'recurrence' | 'remind_at'>
 >;

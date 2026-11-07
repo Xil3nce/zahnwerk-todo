@@ -394,6 +394,64 @@ await test('Erinnerung: Uhrzeit noch nicht erreicht bedeutet keinen Eintrag', as
   if (before) assert.equal((await rows(`select count(*)::int c from public.notification_log`))[0].c, 0);
 });
 
+await test('Uhrzeit-Erinnerung: an die Zustaendigen, einmal, erneut nach Verschieben, nicht wenn erledigt', async () => {
+  await db.exec(`delete from public.notification_log;`);
+  const remind = (sql) => rows(`select (${sql})::text t`).then((r) => r[0].t);
+  const past = await remind(`now() - interval '2 minutes'`);
+  const both = uuid();
+  const forMelina = uuid();
+  const future = uuid();
+  const old = uuid();
+  const done = uuid();
+  await push(F, op('todo', both, { title: 'Arzttermin', due_date: '2026-11-10', remind_at: past }));
+  await push(F, op('todo', forMelina, { title: 'Paket', assignee_id: melina, remind_at: past }));
+  await push(F, op('todo', future, { title: 'Später', remind_at: await remind(`now() + interval '1 hour'`) }));
+  await push(F, op('todo', old, { title: 'Uralt', remind_at: await remind(`now() - interval '2 days'`) }));
+  await push(F, op('todo', done, { title: 'Schon erledigt', remind_at: past, status: 'done' }));
+  await db.exec(`delete from public.notification_log;`);
+
+  await db.query('select private.run_todo_reminders()');
+  await db.query('select private.run_todo_reminders()');
+  const sent = await rows(`select p.display_name n, l.title, l.body, l.todo_id from public.notification_log l
+    join public.profiles p on p.id = l.recipient_id where l.kind = 'remind' order by l.title, p.display_name`);
+  assert.deepEqual(sent.map(({ n, title, body }) => [title, n, body]), [
+    ['Arzttermin', 'Freddy', 'Erinnerung, fällig 10.11.'],
+    ['Arzttermin', 'Melina', 'Erinnerung, fällig 10.11.'],
+    ['Paket', 'Melina', 'Erinnerung'],
+  ]);
+
+  // Verschoben und wieder erreicht: kommt noch einmal. Geaenderte Erinnerung wird Melina gemeldet.
+  await push(F, op('todo', forMelina, { remind_at: await remind(`now() - interval '1 minute'`) }));
+  assert.match((await log(forMelina)).at(-1).body, /Erinnerung/);
+  await db.query('select private.run_todo_reminders()');
+  assert.equal((await rows(`select count(*)::int c from public.notification_log where kind = 'remind' and todo_id = $1`, [forMelina]))[0].c, 2);
+
+  // Erinnerung entfernen wird gespeichert.
+  await push(F, op('todo', future, { remind_at: null }));
+  assert.equal((await rows('select remind_at from public.todos where id = $1', [future]))[0].remind_at, null);
+});
+
+await test('Uhrzeit-Erinnerung: Folgeaufgabe uebernimmt den Abstand zur Faelligkeit', async () => {
+  const id = uuid();
+  // Faellig Di 10.11., Erinnerung Mo 09.11. 18:00 Berliner Zeit (17:00 UTC).
+  await push(F, op('todo', id, { title: 'Müll', due_date: '2026-11-10', remind_at: '2026-11-09T17:00:00Z',
+    recurrence: { every: 1, unit: 'week', mode: 'schedule' } }));
+  await push(F, op('todo', id, { status: 'done' }));
+  const [n] = await rows(`select due_date::text d, (remind_at at time zone 'Europe/Berlin')::text r
+    from public.todos where recurred_from = $1`, [id]);
+  // Erledigt (Testuhr) im Januar 2026, also liegt der naechste Termin bereits am 17.11.
+  assert.deepEqual(n, { d: '2026-11-17', r: '2026-11-16 18:00:00' });
+
+  // Ohne Faelligkeit: gleiche Uhrzeit am neuen Termin, ueber die Zeitumstellung hinweg.
+  const t = uuid();
+  await push(F, op('todo', t, { title: 'Gießen', remind_at: '2026-03-20T07:30:00Z',
+    recurrence: { every: 3, unit: 'day', mode: 'completion' } }));
+  await push(F, op('todo', t, { status: 'done' }, '2026-03-27T10:00:00Z'));
+  const [m] = await rows(`select due_date::text d, (remind_at at time zone 'Europe/Berlin')::text r
+    from public.todos where recurred_from = $1`, [t]);
+  assert.deepEqual(m, { d: '2026-03-30', r: '2026-03-30 08:30:00' });
+});
+
 await test('Queue: claim vergibt jeden Eintrag nur einmal, Keep-alive verraet nichts', async () => {
   await db.exec(`delete from public.notification_log;`);
   await db.query(`select private.enqueue((select household_id from public.profiles where id = $1), $1, 'done', 'k1', null, 't', 'b')`, [melina]);

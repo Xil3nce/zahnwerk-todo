@@ -88,6 +88,41 @@ export function relativeDue(due: string | null, today: string): string {
   return formatDate(due);
 }
 
+/** Datum und Uhrzeit (HH:MM) in Berliner Ortszeit fuer einen Zeitpunkt. */
+export function berlinParts(iso: string): { date: string; time: string } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(iso));
+  const get = (type: string) => parts.find((p) => p.type === type)!.value;
+  return { date: `${get('year')}-${get('month')}-${get('day')}`, time: `${get('hour')}:${get('minute')}` };
+}
+
+/**
+ * Berliner Ortszeit als ISO-Zeitpunkt (UTC). Zweimal angenaehert, damit es auch an den Tagen
+ * der Zeitumstellung stimmt. Eine Uhrzeit in der uebersprungenen Stunde (02:30 im Maerz)
+ * wird um eine Stunde verschoben; in der doppelten Stunde im Oktober gilt die zweite (MEZ).
+ */
+export function berlinToIso(date: string, time: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const [h, min] = time.split(':').map(Number);
+  const wall = Date.UTC(y, m - 1, d, h, min);
+  const offset = (utc: number) => {
+    const p = berlinParts(new Date(utc).toISOString());
+    const [py, pm, pd] = p.date.split('-').map(Number);
+    const [ph, pmin] = p.time.split(':').map(Number);
+    return Date.UTC(py, pm - 1, pd, ph, pmin) - utc;
+  };
+  let utc = wall - offset(wall);
+  utc = wall - offset(utc);
+  return new Date(utc).toISOString();
+}
+
+export function formatReminder(iso: string): string {
+  const { date, time } = berlinParts(iso);
+  return `${formatDate(date)}, ${time} Uhr`;
+}
+
 /** Wie Postgres "date + n months": Tag auf das Monatsende gekappt. */
 export function addMonths(date: string, months: number): string {
   const d = toUtc(date);

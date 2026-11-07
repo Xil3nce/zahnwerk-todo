@@ -1,7 +1,9 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { describeRecurrence, DUE_PRESETS, DuePreset, formatDate, nextDue, resolvePreset } from '../core/due';
+import {
+  berlinParts, berlinToIso, describeRecurrence, DUE_PRESETS, DuePreset, formatDate, formatReminder, nextDue, resolvePreset,
+} from '../core/due';
 import { Recurrence, RecurrenceUnit, TodoPatch } from '../core/models';
 import { Store } from '../core/store';
 
@@ -16,8 +18,14 @@ const EFFORT_OPTIONS = [
   { minutes: 180, label: '3 Std.' },
 ];
 
-/** Fehlende Felder alter Daten gelten als null; Objekte (recurrence) werden unabhaengig von der Schluesselreihenfolge verglichen. */
+const INSTANT = /^\d{4}-\d{2}-\d{2}T/;
+
+/**
+ * Fehlende Felder alter Daten gelten als null; Objekte (recurrence) werden unabhaengig von der
+ * Schluesselreihenfolge verglichen, Zeitpunkte (remind_at) unabhaengig vom Format.
+ */
 function sameValue(a: unknown, b: unknown): boolean {
+  if (typeof a === 'string' && typeof b === 'string' && INSTANT.test(a) && INSTANT.test(b)) return Date.parse(a) === Date.parse(b);
   if (a == null || b == null || typeof a !== 'object' || typeof b !== 'object') return (a ?? null) === (b ?? null);
   const x = a as Record<string, unknown>;
   const y = b as Record<string, unknown>;
@@ -98,6 +106,25 @@ function sameValue(a: unknown, b: unknown): boolean {
       </fieldset>
 
       <fieldset>
+        <legend>Erinnerung</legend>
+        <div class="row">
+          <label class="grow">Tag
+            <input type="date" name="remindDate" [ngModel]="remindDate()" (ngModelChange)="remindDate.set($event || '')" />
+          </label>
+          <label>Uhrzeit
+            <input type="time" name="remindTime" [ngModel]="remindTime()" (ngModelChange)="remindTime.set($event || '')" />
+          </label>
+        </div>
+        @if (remindAt(); as at) {
+          <p class="meta">Erinnerung am {{ formatReminder(at) }}, auf etwa 5 Minuten genau. Sie geht an die Zuständigen, bei „Beide“ an euch beide.</p>
+          @if (isPast(at)) { <p class="notice">Dieser Zeitpunkt liegt in der Vergangenheit.</p> }
+          <button type="button" (click)="clearReminder()">Keine Erinnerung</button>
+        } @else {
+          <p class="meta">Uhrzeit wählen; ohne Tag gilt die Fälligkeit, sonst heute.</p>
+        }
+      </fieldset>
+
+      <fieldset>
         <legend>Zeitaufwand</legend>
         <div class="chips">
           @for (e of efforts; track e.minutes) {
@@ -147,6 +174,16 @@ export class TodoEdit implements OnInit {
   protected readonly recurUnit = signal<RecurrenceUnit | ''>('');
   protected readonly recurEvery = signal<number | null>(1);
   protected readonly recurMode = signal<Recurrence['mode']>('schedule');
+  protected readonly remindDate = signal('');
+  protected readonly remindTime = signal('');
+  protected readonly formatReminder = formatReminder;
+
+  /** Zeitpunkt der Erinnerung; ohne Tag die Faelligkeit, sonst heute. */
+  protected readonly remindAt = computed(() => {
+    const time = this.remindTime();
+    if (!time) return null;
+    return berlinToIso(this.remindDate() || this.dueDate() || this.store.today(), time);
+  });
 
   /** null, wenn nicht wiederholt wird oder die Eingabe ungueltig ist. */
   protected readonly recurrence = computed<Recurrence | null>(() => {
@@ -181,7 +218,21 @@ export class TodoEdit implements OnInit {
         this.recurEvery.set(todo.recurrence.every);
         this.recurMode.set(todo.recurrence.mode);
       }
+      if (todo.remind_at) {
+        const { date, time } = berlinParts(todo.remind_at);
+        this.remindDate.set(date);
+        this.remindTime.set(time);
+      }
     }
+  }
+
+  protected isPast(iso: string): boolean {
+    return Date.parse(iso) < Date.now();
+  }
+
+  protected clearReminder(): void {
+    this.remindDate.set('');
+    this.remindTime.set('');
   }
 
   protected date(preset: DuePreset): string {
@@ -202,6 +253,7 @@ export class TodoEdit implements OnInit {
       due_date: this.dueDate(),
       effort_minutes: this.effortMinutes(),
       recurrence: this.recurrence(),
+      remind_at: this.remindAt(),
     };
     if (!values.title) return;
 

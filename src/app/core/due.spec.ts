@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, addMonths, berlinToday, describeRecurrence, endOfMonth, endOfWeek, formatEffort, nextDue, relativeDue, resolvePreset } from './due';
+import { addDays, addMonths, berlinParts, berlinToday, berlinToIso, describeRecurrence, endOfMonth, endOfWeek, formatEffort, formatReminder, nextDue, relativeDue, resolvePreset } from './due';
 import { Recurrence } from './models';
 
 describe('berlinToday', () => {
@@ -111,5 +111,27 @@ describe('describeRecurrence', () => {
     expect(describeRecurrence({ every: 1, unit: 'week', mode: 'schedule' })).toBe('Wöchentlich');
     expect(describeRecurrence({ every: 3, unit: 'day', mode: 'completion' })).toBe('Alle 3 Tage, ab Erledigung');
     expect(describeRecurrence({ every: 2, unit: 'month', mode: 'schedule' })).toBe('Alle 2 Monate');
+  });
+});
+
+describe('Erinnerungszeit (Berliner Ortszeit)', () => {
+  it('rechnet Winter- und Sommerzeit richtig um', () => {
+    expect(berlinToIso('2026-11-07', '17:30')).toBe('2026-11-07T16:30:00.000Z'); // MEZ
+    expect(berlinToIso('2026-07-14', '17:30')).toBe('2026-07-14T15:30:00.000Z'); // MESZ
+    expect(berlinToIso('2026-01-01', '00:15')).toBe('2025-12-31T23:15:00.000Z'); // Jahreswechsel
+  });
+
+  it('stimmt an den Tagen der Zeitumstellung', () => {
+    expect(berlinToIso('2026-03-29', '01:30')).toBe('2026-03-29T00:30:00.000Z');
+    expect(berlinToIso('2026-03-29', '03:30')).toBe('2026-03-29T01:30:00.000Z');
+    expect(berlinParts(berlinToIso('2026-03-29', '02:30')).time).toBe('03:30'); // uebersprungene Stunde
+    expect(berlinToIso('2026-10-25', '02:30')).toBe('2026-10-25T01:30:00.000Z'); // zweite der doppelten Stunde (MEZ)
+    expect(berlinToIso('2026-10-25', '18:00')).toBe('2026-10-25T17:00:00.000Z');
+  });
+
+  it('liest Zeitpunkte zurueck und formatiert sie', () => {
+    expect(berlinParts('2026-11-07T16:30:00+00:00')).toEqual({ date: '2026-11-07', time: '17:30' });
+    expect(berlinParts('2026-07-14T22:05:00Z')).toEqual({ date: '2026-07-15', time: '00:05' });
+    expect(formatReminder('2026-11-07T16:30:00Z')).toBe('Sa, 07.11.2026, 17:30 Uhr');
   });
 });

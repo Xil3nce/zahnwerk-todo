@@ -2,7 +2,7 @@ import { DatePipe } from '@angular/common';
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { describeRecurrence, formatDate, formatEffort, relativeDue } from '../core/due';
+import { describeRecurrence, formatDate, formatEffort, formatReminder, relativeDue } from '../core/due';
 import { Store } from '../core/store';
 
 @Component({
@@ -23,6 +23,9 @@ import { Store } from '../core/store';
           @if (t.recurrence; as r) {
             <dt>Wiederholung</dt>
             <dd>{{ describe(r) }}@if (t.spawned_id) { <span class="meta"> (nächste ist angelegt)</span> }</dd>
+          }
+          @if (t.remind_at) {
+            <dt>Erinnerung</dt><dd>{{ reminder(t.remind_at) }}</dd>
           }
           <dt>Zeitaufwand</dt><dd>{{ effort(t.effort_minutes) || 'Keine Angabe' }}</dd>
           <dt>Status</dt>
@@ -96,6 +99,7 @@ export class TodoDetail {
   protected readonly format = formatDate;
   protected readonly effort = formatEffort;
   protected readonly describe = describeRecurrence;
+  protected readonly reminder = formatReminder;
   protected readonly newSubtask = signal('');
   protected readonly newComment = signal('');
 
