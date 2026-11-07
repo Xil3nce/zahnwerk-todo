@@ -478,8 +478,9 @@ await test('Queue: claim vergibt jeden Eintrag nur einmal, Keep-alive verraet ni
   await db.exec(`delete from public.notification_log;`);
   await db.query(`select private.enqueue((select household_id from public.profiles where id = $1), $1, 'done', 'k1', null, 't', 'b')`, [melina]);
   await db.exec('set role service_role;');
-  const a = await rows('select * from public.claim_notifications(10)');
-  const b = await rows('select * from public.claim_notifications(10)');
+  // Feste Tageszeit, damit die Ruhezeiten (22 bis 7 Uhr) den Test nachts nicht scheitern lassen.
+  const a = await rows(`select * from public.claim_notifications(10, '2026-06-01T10:00:00Z')`);
+  const b = await rows(`select * from public.claim_notifications(10, '2026-06-01T10:00:00Z')`);
   await db.exec('reset role;');
   assert.equal(a.length, 1);
   assert.equal(b.length, 0);
@@ -499,6 +500,124 @@ await test('Geraete: Token wandert zum zuletzt angemeldeten Nutzer, Abmelden ent
   assert.equal((await rows(`select count(*)::int c from public.device_tokens`))[0].c, 1);
   await as(M, () => db.query(`select public.unregister_device('tok')`));
   assert.equal((await rows(`select count(*)::int c from public.device_tokens`))[0].c, 0);
+});
+
+// ---------------------------------------------------------------- Version 1.0.6
+
+await test('Neue Felder: Wichtig, Zeitfenster und Ablage werden pro Feld synchronisiert', async () => {
+  const id = uuid();
+  await push(F, op('todo', id, { title: 'Fenster putzen', due_date: '2026-11-15', due_window: 'week', important: true }, '2026-02-05T10:00:00Z'));
+  await push(M, op('todo', id, { important: false }, '2026-02-05T12:00:00Z'));
+  await push(F, op('todo', id, { due_window: null, due_date: null, bucket: 'later' }, '2026-02-05T11:00:00Z'));
+  const [t] = (await pull(F)).todos.filter((x) => x.id === id);
+  assert.deepEqual([t.important, t.due_window, t.due_date, t.bucket], [false, null, null, 'later']);
+  // Ohne Angabe: nicht wichtig, keine Ablage.
+  const plain = uuid();
+  await push(F, op('todo', plain, { title: 'Normal' }));
+  assert.deepEqual(await rows('select important, bucket, due_window from public.todos where id = $1', [plain]),
+    [{ important: false, bucket: null, due_window: null }]);
+  // Ungueltige Werte werden abgelehnt.
+  assert.equal((await push(F, op('todo', uuid(), { title: 'x', due_window: 'year' }))).rejected.length, 1);
+  assert.equal((await push(F, op('todo', uuid(), { title: 'x', bucket: 'egal' }))).rejected.length, 1);
+});
+
+await test('Zeitfenster: Fensterende und Folgeaufgaben rasten auf Sonntag bzw. Monatsende ein', async () => {
+  const snap = async (d, w) => (await rows('select private.snap_window($1::date, $2)::text d', [d, w]))[0].d;
+  assert.equal(await snap('2026-11-09', 'week'), '2026-11-15'); // Montag
+  assert.equal(await snap('2026-11-15', 'week'), '2026-11-15'); // Sonntag bleibt
+  assert.equal(await snap('2026-02-03', 'month'), '2026-02-28');
+  assert.equal(await snap('2026-02-03', null), '2026-02-03');
+
+  await db.exec('delete from public.notification_log;');
+  const month = uuid();
+  await push(M, op('todo', month, { title: 'Abrechnung', due_date: '2026-11-30', due_window: 'month', important: true,
+    recurrence: { every: 1, unit: 'month', mode: 'schedule' } }, '2026-11-20T10:00:00Z'));
+  await push(M, op('todo', month, { status: 'done' }, '2026-11-25T10:00:00Z'));
+  const [n] = await rows(`select due_date::text d, due_window w, important i from public.todos where recurred_from = $1`, [month]);
+  // 30.11. + 1 Monat waere der 30.12.; das Fenster "bis Monatsende" macht daraus den 31.12.
+  assert.deepEqual(n, { d: '2026-12-31', w: 'month', i: true });
+  assert.match((await log(month)).at(-1).body, /nächste fällig am 31\.12\./);
+
+  const week = uuid();
+  await push(F, op('todo', week, { title: 'Bad', due_date: '2026-11-15', due_window: 'week',
+    recurrence: { every: 3, unit: 'day', mode: 'schedule' } }, '2026-11-10T10:00:00Z'));
+  await push(F, op('todo', week, { status: 'done' }, '2026-11-11T10:00:00Z'));
+  const [w] = await rows(`select due_date::text d from public.todos where recurred_from = $1`, [week]);
+  assert.equal(w.d, '2026-11-22'); // 15.11. + 3 Tage = 18.11. (Mi), eingerastet auf So 22.11.
+});
+
+await test('Ablage und Ideen: eigene Push-Texte, Wechsel wird gemeldet', async () => {
+  await db.exec('delete from public.notification_log;');
+  const idea = uuid();
+  await push(F, op('todo', idea, { title: 'Kletterwald', bucket: 'idea' }));
+  assert.deepEqual((await log(idea)).map((l) => [l.n, l.body]), [['Melina', 'Freddy hat eine neue Idee geparkt']]);
+  await push(F, op('todo', idea, { bucket: null, due_date: '2026-12-01' }));
+  assert.match((await log(idea)).at(-1).body, /Fälligkeit, eingeplant/);
+  await push(F, op('todo', idea, { bucket: 'later', due_date: null }));
+  assert.match((await log(idea)).at(-1).body, /nach „Später“ verschoben/);
+  await push(F, op('todo', idea, { important: true }));
+  assert.match((await log(idea)).at(-1).body, /als wichtig markiert/);
+});
+
+await test('Papierkorb: Wiederherstellen meldet sich, Cleanup entfernt erst nach 30 Tagen endgueltig', async () => {
+  await db.exec('delete from public.notification_log;');
+  const keep = uuid();
+  const gone = uuid();
+  for (const id of [keep, gone]) {
+    await push(F, op('todo', id, { title: 'Papierkorb ' + id.slice(0, 4) }));
+    await push(F, op('subtask', uuid(), { todo_id: id, title: 'S', is_done: false, sort_order: 1, deleted_at: null }));
+    await push(M, op('comment', uuid(), { todo_id: id, body: 'K', deleted_at: null }));
+    await push(F, op('todo', id, { deleted_at: new Date().toISOString() }));
+  }
+  await push(F, op('todo', keep, { deleted_at: null }));
+  assert.equal((await log(keep)).at(-1).body, 'Freddy hat die Aufgabe wiederhergestellt');
+  assert.equal((await pull(M)).todos.find((t) => t.id === keep).deleted_at, null);
+
+  await push(F, op('todo', keep, { deleted_at: new Date().toISOString() }));
+  await db.query(`update public.todos set deleted_at = now() - interval '29 days' where id = $1`, [keep]);
+  await db.query(`update public.todos set deleted_at = now() - interval '31 days' where id = $1`, [gone]);
+  await db.query('select private.cleanup()');
+  const left = async (table, col) => (await rows(`select count(*)::int c from public.${table} where ${col} = $1`, [gone]))[0].c;
+  assert.deepEqual([await left('todos', 'id'), await left('subtasks', 'todo_id'), await left('comments', 'todo_id')], [0, 0, 0]);
+  assert.equal(await left('notification_log', 'todo_id'), 0);
+  assert.equal((await rows('select count(*)::int c from public.todos where id = $1', [keep]))[0].c, 1);
+  assert.equal((await rows('select count(*)::int c from public.subtasks where todo_id = $1', [keep]))[0].c, 1);
+});
+
+await test('Ruhezeiten: nachts nichts, morgens eine Sammelmeldung, Einzelnes unveraendert, abschaltbar', async () => {
+  await db.exec(`delete from public.notification_log; update public.profiles set quiet_hours = true;`);
+  const hh = (await rows('select household_id h from public.profiles where id = $1', [melina]))[0].h;
+  // 23:10 und 01:30 Berliner Zeit (MEZ = UTC+1) fuer Melina, 23:20 fuer Freddy.
+  const add = (who, key, title, at) => db.query(`insert into public.notification_log
+    (household_id, recipient_id, kind, dedupe_key, title, body, created_at) values ($1, $2, 'new', $3, $4, 'b', $5)`,
+    [hh, who, key, title, at]);
+  await add(melina, 'q1', 'Müll', '2026-11-09T22:10:00Z');
+  await add(melina, 'q2', 'Rasen', '2026-11-10T00:30:00Z');
+  await add(freddy, 'q3', 'Einkauf', '2026-11-09T22:20:00Z');
+  const claim = async (at) => rows(`select kind, title, body, recipient_id from public.claim_notifications(10, $1)`, [at]);
+
+  assert.deepEqual(await claim('2026-11-10T01:00:00Z'), []); // 02:00 Uhr
+  assert.deepEqual(await claim('2026-11-10T05:59:00Z'), []); // 06:59 Uhr
+  const morning = await claim('2026-11-10T06:05:00Z'); // 07:05 Uhr
+  const forMelina = morning.filter((m) => m.recipient_id === melina);
+  assert.deepEqual(forMelina.map((m) => [m.kind, m.title, m.body]), [['digest', 'Seit gestern Abend: 2 Neuigkeiten', 'Müll, Rasen']]);
+  assert.deepEqual(morning.filter((m) => m.recipient_id === freddy).map((m) => [m.kind, m.title]), [['new', 'Einkauf']]);
+  assert.equal((await rows(`select count(*)::int c from public.notification_log where digest_id is not null and sent_at is not null`))[0].c, 2);
+  // Kein zweites Mal, solange der Versand laeuft (Wiedervorlage erst nach 5 Minuten ohne Bestaetigung).
+  assert.deepEqual(await claim('2026-11-10T06:08:00Z'), []);
+
+  await db.exec('update public.notification_log set sent_at = now() where sent_at is null;');
+  // Tagsueber geht alles sofort raus, auch einzeln.
+  await add(melina, 'q4', 'Tag', '2026-11-10T10:00:00Z');
+  await add(melina, 'q5', 'Tag2', '2026-11-10T10:01:00Z');
+  assert.deepEqual((await claim('2026-11-10T10:02:00Z')).map((m) => m.kind), ['new', 'new']);
+
+  // Wer Ruhezeiten abschaltet, bekommt auch nachts sofort Bescheid (Einstellung selbst aenderbar).
+  await db.exec('update public.notification_log set sent_at = now() where sent_at is null;');
+  await as(M, () => db.query('update public.profiles set quiet_hours = false where id = $1', [melina]));
+  await add(melina, 'q6', 'Nachts', '2026-11-10T22:00:00Z');
+  assert.deepEqual((await claim('2026-11-10T22:01:00Z')).map((m) => m.title), ['Nachts']);
+  await db.query('update public.profiles set quiet_hours = true');
 });
 
 console.log(`\n${passed} Tests bestanden`);

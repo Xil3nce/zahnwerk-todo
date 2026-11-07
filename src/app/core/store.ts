@@ -29,6 +29,8 @@ export class Store {
   readonly today = signal(berlinToday());
 
   readonly todos = this.allTodos.asReadonly();
+  /** Fuer die Suche; einzelne Aufgaben lesen ueber commentsOf. */
+  readonly comments = this.allComments.asReadonly();
   readonly categories = computed(() =>
     this.allCategories().filter((c) => !c.deleted_at).sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'de')),
   );
@@ -150,6 +152,11 @@ export class Store {
 
   deleteTodo(id: string): Promise<void> {
     return this.updateTodo(id, { deleted_at: new Date().toISOString() });
+  }
+
+  /** Aus dem Papierkorb zurueckholen (30 Tage lang moeglich, danach entfernt der Server sie). */
+  restoreTodo(id: string): Promise<void> {
+    return this.updateTodo(id, { deleted_at: null });
   }
 
   // ------------------------------------------------------------ Unteraufgaben

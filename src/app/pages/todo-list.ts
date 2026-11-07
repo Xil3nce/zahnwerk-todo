@@ -1,12 +1,22 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
-import { describeRecurrence, formatEffort, formatReminder, relativeDue } from '../core/due';
+import { Router, RouterLink } from '@angular/router';
+import { berlinParts, describeRecurrence, formatDate, formatEffort, formatReminder, relativeDue } from '../core/due';
 import { Todo } from '../core/models';
 import { Store } from '../core/store';
-import { DEFAULT_FILTERS, dueOptions, Filters, selectTodos, SortBy, View } from '../core/views';
+import { DEFAULT_FILTERS, dueOptions, Filters, searchTodos, selectTodos, SortBy, View } from '../core/views';
 
 const PULL_THRESHOLD = 70;
+const VIEW_KEY = 'zahnwerk.view';
+
+function savedView(): View {
+  try {
+    const v = sessionStorage.getItem(VIEW_KEY);
+    return v === 'today' || v === 'week' || v === 'all' || v === 'later' || v === 'done' ? v : 'today';
+  } catch {
+    return 'today';
+  }
+}
 
 @Component({
   selector: 'app-todo-list',
@@ -27,102 +37,147 @@ const PULL_THRESHOLD = 70;
       @if (store.syncError(); as message) { <p class="notice" role="status">{{ message }}</p> }
       @if (store.pendingCount() > 0) { <p class="notice">{{ store.pendingCount() }} Änderung(en) warten auf Übertragung.</p> }
 
-      <div class="segmented" role="group" aria-label="Ansicht">
-        @for (option of views; track option.id) {
-          <button type="button" [class.active]="view() === option.id" [attr.aria-pressed]="view() === option.id" (click)="selectView(option.id)">
-            {{ option.label }}
-          </button>
-        }
+      <div class="search row" role="search">
+        <input class="grow" type="search" name="q" aria-label="Suchen in Titel, Beschreibung und Kommentaren"
+          placeholder="Suchen…" [ngModel]="query()" (ngModelChange)="query.set($event)" />
+        @if (query()) { <button type="button" aria-label="Suche leeren" (click)="query.set('')">×</button> }
       </div>
 
-      <details class="card filters">
-        <summary>Filter und Sortierung{{ filtersActive() ? ' (aktiv)' : '' }}</summary>
-        <div class="stack">
-          <label>Person
-            <select [ngModel]="filters().person" (ngModelChange)="setFilter('person', $event)">
-              <option value="any">Alle</option>
-              @for (p of store.profiles(); track p.id) { <option [value]="p.id">{{ p.display_name }}</option> }
-              <option value="both">Nur „Beide“</option>
-            </select>
-          </label>
-          <label>Kategorie
-            <select [ngModel]="filters().category" (ngModelChange)="setFilter('category', $event)">
-              <option value="any">Alle</option>
-              @for (c of store.categories(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
-              <option value="none">Ohne Kategorie</option>
-            </select>
-          </label>
-          <label>Fälligkeit
-            <select [ngModel]="filters().due" (ngModelChange)="setFilter('due', $event)">
-              @for (option of dueOptions(); track option.id) { <option [value]="option.id">{{ option.label }}</option> }
-            </select>
-          </label>
-          @if (view() === 'all') {
-            <label>Status
-              <select [ngModel]="filters().status" (ngModelChange)="setFilter('status', $event)">
-                <option value="open">Offen</option>
-                <option value="done">Erledigt</option>
+      @if (searching()) {
+        <p class="meta" role="status">{{ hits().length }} Treffer</p>
+        <ul class="todo-list">
+          @for (hit of hits(); track hit.todo.id) {
+            <li class="card todo" [class.done]="hit.todo.status === 'done'">
+              <a [routerLink]="['/aufgabe', hit.todo.id]">
+                <strong>@if (hit.todo.important) { <span class="star" aria-label="Wichtig">★</span> }{{ hit.todo.title }}</strong>
+                <span class="meta">{{ place(hit.todo) }}@if (hit.where === 'description') { · Treffer in der Beschreibung }@if (hit.where === 'comment') { · Treffer in einem Kommentar }</span>
+              </a>
+            </li>
+          } @empty {
+            <li class="empty">Nichts gefunden.</li>
+          }
+        </ul>
+      } @else {
+        <div class="segmented" role="group" aria-label="Ansicht">
+          @for (option of views; track option.id) {
+            <button type="button" [class.active]="view() === option.id" [attr.aria-pressed]="view() === option.id" (click)="selectView(option.id)">
+              {{ option.label }}
+            </button>
+          }
+        </div>
+
+        @if (view() === 'later') { <p class="meta">Aufgaben ohne Datum, die nicht in „Alle“ untergehen sollen.</p> }
+        @if (view() === 'done') { <p class="meta">Haken entfernen, um eine Aufgabe wieder zu öffnen.</p> }
+
+        <details class="card filters">
+          <summary>Filter und Sortierung{{ filtersActive() ? ' (aktiv)' : '' }}</summary>
+          <div class="stack">
+            <label>Person
+              <select [ngModel]="filters().person" (ngModelChange)="setFilter('person', $event)">
                 <option value="any">Alle</option>
+                @for (p of store.profiles(); track p.id) { <option [value]="p.id">{{ p.display_name }}</option> }
+                <option value="both">Nur „Beide“</option>
               </select>
             </label>
+            <label>Kategorie
+              <select [ngModel]="filters().category" (ngModelChange)="setFilter('category', $event)">
+                <option value="any">Alle</option>
+                @for (c of store.categories(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
+                <option value="none">Ohne Kategorie</option>
+              </select>
+            </label>
+            @if (dueOptions().length > 1) {
+              <label>Fälligkeit
+                <select [ngModel]="filters().due" (ngModelChange)="setFilter('due', $event)">
+                  @for (option of dueOptions(); track option.id) { <option [value]="option.id">{{ option.label }}</option> }
+                </select>
+              </label>
+            }
+            @if (view() === 'all') {
+              <label>Status
+                <select [ngModel]="filters().status" (ngModelChange)="setFilter('status', $event)">
+                  <option value="open">Offen</option>
+                  <option value="done">Erledigt</option>
+                  <option value="any">Alle</option>
+                </select>
+              </label>
+            }
+            @if (view() !== 'done') {
+              <label>Sortierung
+                <select [ngModel]="sort()" (ngModelChange)="sort.set($event)">
+                  <option value="due">Fälligkeit</option>
+                  <option value="important">Wichtige zuerst</option>
+                  <option value="category">Kategorie</option>
+                  <option value="effort">Aufwand</option>
+                </select>
+              </label>
+            }
+            <button type="button" (click)="filters.set(defaults)">Filter zurücksetzen</button>
+          </div>
+        </details>
+
+        <ul class="todo-list">
+          @for (todo of visible(); track todo.id) {
+            <li class="card todo" [class.done]="todo.status === 'done'" [class.tinted]="store.categoryColor(todo.category_id)"
+              [style.--category-color]="store.categoryColor(todo.category_id)">
+              <input type="checkbox" class="gear-check" [checked]="todo.status === 'done'"
+                [attr.aria-label]="todo.title + (todo.status === 'done' ? ' wieder öffnen' : ' erledigen')"
+                (change)="toggle(todo)" />
+              <a [routerLink]="['/aufgabe', todo.id]">
+                <strong>@if (todo.important) { <span class="star" aria-label="Wichtig">★</span> }{{ todo.title }}</strong>
+                <span class="meta" [class.overdue]="isOverdue(todo)">{{ due(todo) }}@if (todo.recurrence; as r) { <span [attr.aria-label]="', ' + describe(r)" [title]="describe(r)"> · 🔁</span> }@if (hasReminder(todo)) { <span [attr.aria-label]="', Erinnerung ' + reminder(todo.remind_at!)" [title]="reminder(todo.remind_at!)"> · ⏰</span> }</span>
+                <span class="meta">
+                  {{ assignee(todo) }} ·
+                  @if (store.categoryColor(todo.category_id); as color) { <span class="swatch small" aria-hidden="true" [style.background]="color"></span> }
+                  {{ store.categoryName(todo.category_id) }}@if (todo.effort_minutes) { · {{ effort(todo.effort_minutes) }} }
+                </span>
+              </a>
+            </li>
+          } @empty {
+            <li class="empty">{{ emptyText() }}</li>
           }
-          <label>Sortierung
-            <select [ngModel]="sort()" (ngModelChange)="sort.set($event)">
-              <option value="due">Fälligkeit</option>
-              <option value="category">Kategorie</option>
-              <option value="effort">Aufwand</option>
-            </select>
-          </label>
-          <button type="button" (click)="filters.set(defaults)">Filter zurücksetzen</button>
-        </div>
-      </details>
+        </ul>
 
-      <ul class="todo-list">
-        @for (todo of visible(); track todo.id) {
-          <li class="card todo" [class.done]="todo.status === 'done'" [class.tinted]="store.categoryColor(todo.category_id)"
-            [style.--category-color]="store.categoryColor(todo.category_id)">
-            <input type="checkbox" class="gear-check" [checked]="todo.status === 'done'"
-              [attr.aria-label]="todo.title + (todo.status === 'done' ? ' wieder öffnen' : ' erledigen')"
-              (change)="store.toggleDone(todo)" />
-            <a [routerLink]="['/aufgabe', todo.id]">
-              <strong>{{ todo.title }}</strong>
-              <span class="meta" [class.overdue]="isOverdue(todo)">{{ due(todo) }}@if (todo.recurrence; as r) { <span [attr.aria-label]="', ' + describe(r)" [title]="describe(r)"> · 🔁</span> }@if (hasReminder(todo)) { <span [attr.aria-label]="', Erinnerung ' + reminder(todo.remind_at!)" [title]="reminder(todo.remind_at!)"> · ⏰</span> }</span>
-              <span class="meta">
-                {{ assignee(todo) }} ·
-                @if (store.categoryColor(todo.category_id); as color) { <span class="swatch small" aria-hidden="true" [style.background]="color"></span> }
-                {{ store.categoryName(todo.category_id) }}@if (todo.effort_minutes) { · {{ effort(todo.effort_minutes) }} }
-              </span>
-            </a>
-          </li>
-        } @empty {
-          <li class="empty">Hier ist alles erledigt. Das Zahnwerk ruht.</li>
-        }
-      </ul>
+        @if (view() === 'done') { <p><a routerLink="/papierkorb">Zum Papierkorb</a></p> }
+      }
 
-      <a class="fab" routerLink="/neu" aria-label="Neue Aufgabe">+</a>
+      <a class="fab" [routerLink]="'/neu'" [queryParams]="view() === 'later' ? { ablage: 'spaeter' } : {}" aria-label="Neue Aufgabe">+</a>
     </div>
   `,
 })
 export class TodoList {
   protected readonly store = inject(Store);
+  private readonly router = inject(Router);
   protected readonly threshold = PULL_THRESHOLD;
   protected readonly defaults = DEFAULT_FILTERS;
   protected readonly views: { id: View; label: string }[] = [
     { id: 'today', label: 'Heute' },
-    { id: 'week', label: 'Diese Woche' },
+    { id: 'week', label: 'Woche' },
     { id: 'all', label: 'Alle' },
+    { id: 'later', label: 'Später' },
+    { id: 'done', label: 'Erledigt' },
   ];
 
-  protected readonly view = signal<View>('today');
+  protected readonly view = signal<View>(savedView());
   protected readonly filters = signal<Filters>(DEFAULT_FILTERS);
   protected readonly sort = signal<SortBy>('due');
+  protected readonly query = signal('');
   protected readonly pull = signal(0);
   private touchStartY: number | null = null;
 
   protected readonly visible = computed(() =>
     selectTodos(this.store.todos(), this.view(), this.filters(), this.sort(), this.store.today(), this.store.categories()),
   );
+  protected readonly searching = computed(() => !!this.query().trim());
+  protected readonly hits = computed(() => searchTodos(this.store.todos(), this.store.comments(), this.query()));
   protected readonly filtersActive = computed(() => JSON.stringify(this.filters()) !== JSON.stringify(DEFAULT_FILTERS));
+  protected readonly emptyText = computed(() => {
+    switch (this.view()) {
+      case 'later': return 'Nichts abgelegt.';
+      case 'done': return 'Noch nichts erledigt.';
+      default: return 'Hier ist alles erledigt. Das Zahnwerk ruht.';
+    }
+  });
   protected readonly effort = formatEffort;
   protected readonly describe = describeRecurrence;
   protected readonly reminder = formatReminder;
@@ -136,6 +191,11 @@ export class TodoList {
 
   protected selectView(view: View): void {
     this.view.set(view);
+    try {
+      sessionStorage.setItem(VIEW_KEY, view);
+    } catch {
+      // Ansicht wird dann nicht gemerkt.
+    }
     // Eine Faelligkeit, die es in der neuen Ansicht nicht gibt, wuerde unsichtbar weiterfiltern.
     if (!this.dueOptions().some((o) => o.id === this.filters().due)) this.setFilter('due', 'any');
   }
@@ -144,8 +204,26 @@ export class TodoList {
     this.filters.update((f) => ({ ...f, [key]: value }));
   }
 
+  /** Wer in "Erledigt" den Haken entfernt, landet gleich in der Bearbeitung, um Details anzupassen. */
+  protected async toggle(todo: Todo): Promise<void> {
+    const reopen = todo.status === 'done';
+    await this.store.toggleDone(todo);
+    if (reopen && this.view() === 'done') await this.router.navigate(['/aufgabe', todo.id, 'bearbeiten']);
+  }
+
   protected due(todo: Todo): string {
-    return relativeDue(todo.due_date, this.store.today());
+    if (this.view() === 'done' && !this.searching() && todo.done_at) {
+      const who = this.store.profiles().find((p) => p.id === todo.done_by)?.display_name;
+      return `Erledigt am ${formatDate(berlinParts(todo.done_at).date)}${who ? ' von ' + who : ''}`;
+    }
+    if (todo.bucket === 'later' && !todo.due_date) return 'Später';
+    if (todo.bucket === 'idea') return 'Idee';
+    return relativeDue(todo.due_date, this.store.today(), todo.due_window);
+  }
+
+  /** Wo eine gefundene Aufgabe liegt. */
+  protected place(todo: Todo): string {
+    return todo.status === 'done' ? `Erledigt · ${this.due(todo)}` : this.due(todo);
   }
 
   protected isOverdue(todo: Todo): boolean {

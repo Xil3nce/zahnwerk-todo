@@ -14,6 +14,8 @@ App auf Deutsch, Sideload-APK für zwei Personen, keine kostenpflichtigen Dienst
 - `powershell -File scripts/build-apk.ps1` – signierte Release-APK
 - `npx supabase db push` – Migrationen einspielen
 - `npx supabase functions deploy push-dispatch --no-verify-jwt`
+- `npm run test:db` – Migrationen, RLS, Sync, Pushes in PGlite
+- `powershell -File scripts/publish-release.ps1` – APK als GitHub-Release an `UPDATE_REPO` (Selbst-Update-Hinweis)
 
 ## Konventionen
 - Schema nur über neue Dateien in `supabase/migrations/`; nie alte Migrationen ändern.
@@ -22,6 +24,11 @@ App auf Deutsch, Sideload-APK für zwei Personen, keine kostenpflichtigen Dienst
 - Kategorien und Unteraufgaben immer als vollständigen Datensatz in die Outbox schreiben.
 - `due_date` ist ein reines Datum nach Europe/Berlin; Logik in `src/app/core/due.ts`.
 - `assignee_id = null` bedeutet „Beide“.
+- `bucket`: `null` = normale Aufgabe, `later` = Ablage „Später“ (ohne Datum), `idea` = Ideen-Parkplatz; beide erscheinen nicht in „Alle“.
+- `due_window` (`week`/`month`): Zeitfenster; `due_date` ist dann das Fensterende, Folgeaufgaben rasten per `private.snap_window` ein.
+- Ruhezeiten 22–7 Uhr (Europe/Berlin) pro Profil (`quiet_hours`): `claim_notifications` hält zurück, morgens eine Sammelmeldung (`kind = 'digest'`).
+- Papierkorb: `deleted_at` bleibt 30 Tage wiederherstellbar; `private.cleanup()` löscht danach endgültig.
+- Spracheingabe: `@capgo/capacitor-speech-recognition` (v8 passt zu Capacitor 8).
 - Farben und Abstände nur über CSS-Variablen in `src/styles.scss`.
 
 ## Secrets

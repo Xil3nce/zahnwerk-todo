@@ -5,6 +5,7 @@ import { Capacitor } from '@capacitor/core';
 import { Push } from './core/push';
 import { Store } from './core/store';
 import { Theme } from './core/theme';
+import { Updates } from './core/updates';
 import { Login } from './pages/login';
 
 @Component({
@@ -13,9 +14,19 @@ import { Login } from './pages/login';
   template: `
     @if (store.ready()) {
       @if (store.session()) {
+        @if (updates.banner(); as release) {
+          <aside class="update-banner row between" role="status">
+            <span>Update verfügbar: Version {{ release.version }}</span>
+            <span class="row">
+              <a class="button primary" [href]="release.url" target="_blank" rel="noopener">Herunterladen</a>
+              <button type="button" (click)="updates.dismiss()">Später</button>
+            </span>
+          </aside>
+        }
         <main class="page"><router-outlet /></main>
         <nav class="tabbar" aria-label="Hauptnavigation">
           <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Aufgaben</a>
+          <a routerLink="/ideen" routerLinkActive="active">Ideen</a>
           <a routerLink="/statistik" routerLinkActive="active">Statistik</a>
           <a routerLink="/kategorien" routerLinkActive="active">Kategorien</a>
           <a routerLink="/einstellungen" routerLinkActive="active">Einstellungen</a>
@@ -31,6 +42,7 @@ export class App implements OnInit {
   private readonly push = inject(Push);
   private readonly router = inject(Router);
   private readonly theme = inject(Theme);
+  protected readonly updates = inject(Updates);
 
   constructor() {
     // Beim Anmelden und bei jedem Start: Geraet registrieren und synchronisieren.
@@ -39,6 +51,7 @@ export class App implements OnInit {
         untracked(() => {
           void this.store.sync();
           void this.push.start();
+          void this.updates.check();
         });
       }
     });
@@ -47,7 +60,10 @@ export class App implements OnInit {
   async ngOnInit(): Promise<void> {
     await this.store.init();
     if (Capacitor.isNativePlatform()) {
-      await CapApp.addListener('resume', () => void this.store.sync());
+      await CapApp.addListener('resume', () => {
+        void this.store.sync();
+        void this.updates.check();
+      });
       await CapApp.addListener('backButton', ({ canGoBack }) => {
         if (canGoBack && this.router.url !== '/') history.back();
         else void CapApp.minimizeApp();

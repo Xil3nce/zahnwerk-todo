@@ -1,8 +1,9 @@
 import { addDays, endOfWeek } from './due';
-import { Category, Profile, Todo } from './models';
+import { Category, Comment, Profile, Todo } from './models';
 
-export type View = 'today' | 'week' | 'all';
-export type SortBy = 'due' | 'category' | 'effort';
+/** Spaeter: Ablage ohne Datum; Erledigt: abgehakte Aufgaben und Ideen. */
+export type View = 'today' | 'week' | 'all' | 'later' | 'done';
+export type SortBy = 'due' | 'important' | 'category' | 'effort';
 export type DueFilter = 'any' | 'overdue' | 'today' | 'this_week' | 'next_week' | 'none';
 export type StatusFilter = 'open' | 'done' | 'any';
 
@@ -41,13 +42,32 @@ export function dueOptions(view: View): { id: DueFilter; label: string }[] {
         { id: 'next_week', label: 'Nächste Woche' },
         { id: 'none', label: 'Ohne Datum' },
       ];
+    case 'later':
+    case 'done':
+      return [{ id: 'any', label: 'Alle' }];
   }
 }
 
+/** Status, den eine Ansicht erzwingt; nur "Alle" laesst den Statusfilter gelten. */
+export function viewStatus(view: View, filter: StatusFilter): StatusFilter {
+  if (view === 'all') return filter;
+  return view === 'done' ? 'done' : 'open';
+}
+
 export function matchesView(todo: Todo, view: View, today: string): boolean {
-  if (view === 'all') return true;
-  if (todo.status !== 'open' || !todo.due_date) return false;
-  return todo.due_date <= (view === 'today' ? today : endOfWeek(today));
+  const bucket = todo.bucket ?? null;
+  switch (view) {
+    case 'done':
+      return todo.status === 'done';
+    case 'later':
+      return bucket === 'later';
+    case 'all':
+      // Ablage und Ideen gehen in "Alle" nicht unter, sie haben eigene Listen.
+      return bucket === null;
+    default:
+      if (bucket !== null || todo.status !== 'open' || !todo.due_date) return false;
+      return todo.due_date <= (view === 'today' ? today : endOfWeek(today));
+  }
 }
 
 function matchesDue(todo: Todo, due: DueFilter, today: string): boolean {
@@ -73,8 +93,8 @@ export function selectTodos(
   todos: Todo[], view: View, filters: Filters, sort: SortBy, today: string, categories: Category[],
 ): Todo[] {
   const categoryName = (id: string | null) => categories.find((c) => c.id === id && !c.deleted_at)?.name ?? '￿';
-  // In den Ansichten Heute und Woche sind immer nur offene Aufgaben relevant.
-  const status = view === 'all' ? filters.status : 'open';
+  // Heute, Woche und Spaeter zeigen nur Offenes, Erledigt nur Erledigtes.
+  const status = viewStatus(view, filters.status);
   const visible = todos.filter(
     (t) =>
       !t.deleted_at &&
@@ -87,8 +107,13 @@ export function selectTodos(
       matchesDue(t, filters.due, today),
   );
   const byDue = (a: Todo, b: Todo) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999');
+  // Erledigt: zuletzt Abgehaktes oben, unabhaengig von der Sortierung.
+  if (view === 'done') {
+    return [...visible].sort((a, b) => (b.done_at ?? '').localeCompare(a.done_at ?? '') || a.title.localeCompare(b.title, 'de'));
+  }
   const compare: Record<SortBy, (a: Todo, b: Todo) => number> = {
     due: byDue,
+    important: (a, b) => Number(!!b.important) - Number(!!a.important) || byDue(a, b),
     category: (a, b) => categoryName(a.category_id).localeCompare(categoryName(b.category_id), 'de') || byDue(a, b),
     effort: (a, b) => (a.effort_minutes ?? Infinity) - (b.effort_minutes ?? Infinity) || byDue(a, b),
   };
@@ -103,7 +128,8 @@ export interface PersonStats {
 }
 
 export function computeStats(todos: Todo[], profiles: Profile[], due: DueFilter, today: string): PersonStats[] {
-  const live = todos.filter((t) => !t.deleted_at && matchesDue(t, due, today));
+  // Ideen sind keine Aufgaben und zaehlen nicht mit.
+  const live = todos.filter((t) => !t.deleted_at && t.bucket !== 'idea' && matchesDue(t, due, today));
   const open = live.filter((t) => t.status === 'open');
   const sum = (list: Todo[]) => list.reduce((total, t) => total + (t.effort_minutes ?? 0), 0);
   const people = profiles.map((p) => {
@@ -117,4 +143,65 @@ export function computeStats(todos: Todo[], profiles: Profile[], due: DueFilter,
   });
   const both = open.filter((t) => t.assignee_id === null);
   return [...people, { label: 'Beide', openCount: both.length, openMinutes: sum(both), doneCount: null }];
+}
+
+// ------------------------------------------------------------ Suche
+
+/** Klein, ohne Akzente, "ß" als "ss": "mull" und "MÜLL" finden "Müll". */
+export function normalize(text: string): string {
+  return text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/ß/g, 'ss');
+}
+
+export type SearchHit = { todo: Todo; where: 'title' | 'description' | 'comment' };
+
+/**
+ * Sucht in Titel, Beschreibung und Kommentaren aller nicht geloeschten Aufgaben und Ideen.
+ * Jedes Wort muss irgendwo vorkommen. Offene vor erledigten, Titeltreffer vor den anderen.
+ */
+export function searchTodos(todos: Todo[], comments: Comment[], query: string): SearchHit[] {
+  const words = normalize(query).split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const commentText = new Map<string, string>();
+  for (const c of comments) {
+    if (!c.deleted_at) commentText.set(c.todo_id, (commentText.get(c.todo_id) ?? '') + '\n' + normalize(c.body));
+  }
+  const hits: SearchHit[] = [];
+  for (const todo of todos) {
+    if (todo.deleted_at) continue;
+    const title = normalize(todo.title);
+    const text = `${title}\n${normalize(todo.description ?? '')}`;
+    const all = `${text}\n${commentText.get(todo.id) ?? ''}`;
+    if (!words.every((w) => all.includes(w))) continue;
+    const where = words.every((w) => title.includes(w)) ? 'title' : words.every((w) => text.includes(w)) ? 'description' : 'comment';
+    hits.push({ todo, where });
+  }
+  const rank = { title: 0, description: 1, comment: 2 };
+  return hits.sort((a, b) =>
+    Number(a.todo.status === 'done') - Number(b.todo.status === 'done') ||
+    rank[a.where] - rank[b.where] ||
+    (a.todo.due_date ?? '9999').localeCompare(b.todo.due_date ?? '9999') ||
+    a.todo.title.localeCompare(b.todo.title, 'de'));
+}
+
+// ------------------------------------------------------------ Papierkorb
+
+export const TRASH_DAYS = 30;
+
+/** Geloeschte Aufgaben der letzten 30 Tage, zuletzt Geloeschtes oben, mit verbleibenden Tagen. */
+export function trashTodos(todos: Todo[], now: Date = new Date()): { todo: Todo; daysLeft: number }[] {
+  return todos
+    .filter((t) => !!t.deleted_at)
+    .map((todo) => ({
+      todo,
+      daysLeft: Math.ceil(TRASH_DAYS - (now.getTime() - Date.parse(todo.deleted_at!)) / 86_400_000),
+    }))
+    .filter((t) => t.daysLeft > 0)
+    .sort((a, b) => b.todo.deleted_at!.localeCompare(a.todo.deleted_at!));
+}
+
+/** Ideen-Parkplatz: offene Ideen, neueste oben. */
+export function openIdeas(todos: Todo[]): Todo[] {
+  return todos
+    .filter((t) => !t.deleted_at && t.bucket === 'idea' && t.status === 'open')
+    .sort((a, b) => b.created_at.localeCompare(a.created_at) || a.title.localeCompare(b.title, 'de'));
 }

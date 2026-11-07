@@ -11,13 +11,17 @@ import { Store } from '../core/store';
   template: `
     @if (todo(); as t) {
       <a routerLink="/">← Zurück</a>
-      <h1>{{ t.title }}</h1>
+      <h1>@if (t.important) { <span class="star" aria-label="Wichtig">★</span> }{{ t.title }}</h1>
 
       <section class="card stack">
         @if (t.description) { <p class="pre">{{ t.description }}</p> }
         <dl class="facts">
-          <dt>Fällig</dt>
-          <dd>{{ due() }}@if (t.due_date) { <span class="meta"> ({{ format(t.due_date) }})</span> }</dd>
+          @if (t.bucket === 'idea') {
+            <dt>Art</dt><dd>Idee (ohne Fälligkeit)</dd>
+          } @else {
+            <dt>Fällig</dt>
+            <dd>{{ due() }}@if (t.due_date) { <span class="meta"> ({{ t.due_window ? 'spätestens ' : '' }}{{ format(t.due_date) }})</span> }</dd>
+          }
           <dt>Zuständig</dt><dd>{{ name(t.assignee_id) ?? 'Beide' }}</dd>
           <dt>Kategorie</dt><dd>@if (store.categoryColor(t.category_id); as color) { <span class="swatch small" aria-hidden="true" [style.background]="color"></span> }{{ store.categoryName(t.category_id) }}</dd>
           @if (t.recurrence; as r) {
@@ -40,6 +44,14 @@ import { Store } from '../core/store';
             {{ t.status === 'done' ? 'Wieder öffnen' : 'Erledigt' }}
           </button>
           <a class="button" [routerLink]="['/aufgabe', t.id, 'bearbeiten']">Bearbeiten</a>
+        </div>
+        <div class="row">
+          <button type="button" [attr.aria-pressed]="!!t.important" (click)="store.updateTodo(t.id, { important: !t.important })">
+            {{ t.important ? '★ Nicht mehr wichtig' : '☆ Als wichtig markieren' }}
+          </button>
+          @if (t.bucket === 'idea') {
+            <button type="button" (click)="plan(t.id)">Als Aufgabe einplanen</button>
+          }
         </div>
       </section>
 
@@ -81,7 +93,7 @@ import { Store } from '../core/store';
         </form>
       </section>
 
-      <button class="danger" type="button" (click)="remove(t.id)">Aufgabe löschen</button>
+      <button class="danger" type="button" (click)="remove(t.id)">In den Papierkorb</button>
     } @else {
       <p>Diese Aufgabe gibt es nicht mehr.</p>
       <a routerLink="/">Zur Übersicht</a>
@@ -109,7 +121,11 @@ export class TodoDetail {
   });
   protected readonly subtasks = computed(() => this.store.subtasksOf(this.id()));
   protected readonly comments = computed(() => this.store.commentsOf(this.id()));
-  protected readonly due = computed(() => relativeDue(this.todo()?.due_date ?? null, this.store.today()));
+  protected readonly due = computed(() => {
+    const t = this.todo();
+    if (t?.bucket === 'later' && !t.due_date) return 'Später (abgelegt, ohne Datum)';
+    return relativeDue(t?.due_date ?? null, this.store.today(), t?.due_window);
+  });
 
   protected name(profileId: string | null): string | null {
     return this.store.profiles().find((p) => p.id === profileId)?.display_name ?? null;
@@ -130,8 +146,15 @@ export class TodoDetail {
   }
 
   protected async remove(id: string): Promise<void> {
-    if (!confirm('Diese Aufgabe wirklich löschen?')) return;
+    if (!confirm('Diese Aufgabe in den Papierkorb legen? Sie lässt sich 30 Tage lang wiederherstellen.')) return;
+    const idea = this.todo()?.bucket === 'idea';
     await this.store.deleteTodo(id);
-    await this.router.navigate(['/']);
+    await this.router.navigate([idea ? '/ideen' : '/']);
+  }
+
+  /** Idee wird zur Aufgabe; danach gleich Faelligkeit usw. festlegen. */
+  protected async plan(id: string): Promise<void> {
+    await this.store.updateTodo(id, { bucket: null });
+    await this.router.navigate(['/aufgabe', id, 'bearbeiten']);
   }
 }

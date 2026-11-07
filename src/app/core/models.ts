@@ -10,6 +10,8 @@ export interface Profile {
   notify_due_today: boolean;
   notify_overdue: boolean;
   notify_comment: boolean;
+  /** Keine Pushes von 22 bis 7 Uhr, morgens gesammelt; fehlt bei Daten vor 1.0.6. */
+  quiet_hours?: boolean;
   server_seq: number;
 }
 
@@ -44,7 +46,16 @@ export interface Todo {
   recurred_from?: string | null;
   /** Einmalige Erinnerung (ISO-Zeitpunkt); fehlt bei Daten aus App-Versionen vor 1.0.5. */
   remind_at?: string | null;
+  /** Ab 1.0.6; fehlende Werte gelten als false bzw. null. */
+  important?: boolean;
+  /** Zeitfenster statt Stichtag; due_date ist dann das Ende des Fensters. */
+  due_window?: DueWindow | null;
+  /** later: Spaeter-Ablage, idea: Ideen-Parkplatz, null: normale Aufgabe. */
+  bucket?: Bucket | null;
 }
+
+export type DueWindow = 'week' | 'month';
+export type Bucket = 'later' | 'idea';
 
 export type RecurrenceUnit = 'day' | 'week' | 'month';
 
@@ -85,5 +96,5 @@ export interface OutboxOp {
 }
 
 export type TodoPatch = Partial<
-  Pick<Todo, 'title' | 'description' | 'category_id' | 'due_date' | 'assignee_id' | 'effort_minutes' | 'status' | 'deleted_at' | 'recurrence' | 'remind_at'>
+  Pick<Todo, 'title' | 'description' | 'category_id' | 'due_date' | 'assignee_id' | 'effort_minutes' | 'status' | 'deleted_at' | 'recurrence' | 'remind_at' | 'important' | 'due_window' | 'bucket'>
 >;

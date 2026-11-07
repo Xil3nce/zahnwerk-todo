@@ -2,10 +2,18 @@ import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
-  berlinParts, berlinToIso, describeRecurrence, DUE_PRESETS, DuePreset, formatDate, formatReminder, nextDue, resolvePreset,
+  berlinParts, berlinToIso, describeRecurrence, DuePreset, formatDate, formatReminder, nextDue, relativeDue, resolvePreset,
+  WINDOW_PRESETS, WindowPreset,
 } from '../core/due';
-import { Recurrence, RecurrenceUnit, TodoPatch } from '../core/models';
+import { Bucket, DueWindow, Recurrence, RecurrenceUnit, TodoPatch } from '../core/models';
 import { Store } from '../core/store';
+import { appendSpoken, Voice } from '../core/voice';
+
+/** Feste Tage; "Diese Woche" und "Diesen Monat" sind jetzt Zeitfenster. */
+const FIXED_PRESETS: { id: DuePreset; label: string }[] = [
+  { id: 'today', label: 'Heute' },
+  { id: 'tomorrow', label: 'Morgen' },
+];
 
 const EFFORT_OPTIONS = [
   { minutes: 5, label: '5 Min.' },
@@ -37,13 +45,31 @@ function sameValue(a: unknown, b: unknown): boolean {
   selector: 'app-todo-edit',
   imports: [FormsModule, RouterLink],
   template: `
-    <h1>{{ id ? 'Aufgabe bearbeiten' : 'Neue Aufgabe' }}</h1>
+    <h1>{{ heading() }}</h1>
     <form class="stack" (ngSubmit)="save()">
-      <label>Titel
-        <input name="title" required maxlength="200" [(ngModel)]="title" />
-      </label>
-      <label>Beschreibung
-        <textarea name="description" rows="3" [(ngModel)]="description"></textarea>
+      <div class="row">
+        <label class="grow">Titel
+          <input name="title" required maxlength="200" [(ngModel)]="title" />
+        </label>
+        @if (voice.supported) {
+          <button type="button" class="mic" [class.active]="voice.listening() === 'title'" aria-label="Titel sprechen"
+            [disabled]="!!voice.listening()" (click)="dictate('title')">🎤</button>
+        }
+      </div>
+      <div class="row">
+        <label class="grow">Beschreibung
+          <textarea name="description" rows="3" [(ngModel)]="description"></textarea>
+        </label>
+        @if (voice.supported) {
+          <button type="button" class="mic" [class.active]="voice.listening() === 'description'" aria-label="Beschreibung sprechen"
+            [disabled]="!!voice.listening()" (click)="dictate('description')">🎤</button>
+        }
+      </div>
+      @if (voice.listening()) { <p class="meta" role="status">Höre zu…</p> }
+      @if (voice.error(); as message) { <p class="error" role="alert">{{ message }}</p> }
+      <label class="check">
+        <input type="checkbox" name="important" [ngModel]="important()" (ngModelChange)="important.set($event)" />
+        ★ Wichtig
       </label>
       <label>Kategorie
         <select name="category" [(ngModel)]="categoryId">
@@ -58,18 +84,30 @@ function sameValue(a: unknown, b: unknown): boolean {
         </select>
       </label>
 
+      @if (bucket() === 'idea') {
+        <p class="meta">Ideen haben keine Fälligkeit und keine Erinnerung – ohne Druck.</p>
+        <button type="button" (click)="bucket.set(null)">Als Aufgabe einplanen</button>
+      } @else {
       <fieldset>
         <legend>Fällig bis</legend>
         <div class="chips">
-          @for (p of presets; track p.id) {
-            <button type="button" class="chip" [class.active]="dueDate() === date(p.id)" (click)="dueDate.set(date(p.id))">{{ p.label }}</button>
+          @for (p of fixedPresets; track p.id) {
+            <button type="button" class="chip" [class.active]="!dueWindow() && dueDate() === date(p.id)" (click)="pickDate(date(p.id))">{{ p.label }}</button>
           }
-          <button type="button" class="chip" [class.active]="!dueDate()" (click)="dueDate.set(null)">Ohne Datum</button>
+          @for (p of windowPresets; track p.id) {
+            <button type="button" class="chip" [class.active]="dueWindow() === p.window && dueDate() === date(p.id)" (click)="pickWindow(p.id, p.window)">{{ p.label }}</button>
+          }
+          <button type="button" class="chip" [class.active]="!dueDate() && bucket() !== 'later'" (click)="pickNoDate(null)">Ohne Datum</button>
+          <button type="button" class="chip" [class.active]="bucket() === 'later'" (click)="pickNoDate('later')">Später</button>
         </div>
         <label>Stichtag
-          <input type="date" name="due" [ngModel]="dueDate()" (ngModelChange)="dueDate.set($event || null)" />
+          <input type="date" name="due" [ngModel]="dueWindow() ? null : dueDate()" (ngModelChange)="pickDate($event || null)" />
         </label>
-        @if (dueDate(); as d) { <p class="meta">{{ format(d) }}</p> }
+        @if (dueDate(); as d) {
+          <p class="meta">@if (dueWindow()) { {{ windowText() }}, spätestens }{{ format(d) }}</p>
+        } @else if (bucket() === 'later') {
+          <p class="meta">Landet in der Ablage „Später“ statt in „Alle“.</p>
+        }
       </fieldset>
 
       <fieldset>
@@ -123,6 +161,7 @@ function sameValue(a: unknown, b: unknown): boolean {
           <p class="meta">Uhrzeit wählen; ohne Tag gilt die Fälligkeit, sonst heute.</p>
         }
       </fieldset>
+      }
 
       <fieldset>
         <legend>Zeitaufwand</legend>
@@ -146,7 +185,7 @@ function sameValue(a: unknown, b: unknown): boolean {
       </fieldset>
 
       <div class="row between">
-        <a class="button" [routerLink]="id ? ['/aufgabe', id] : ['/']">Abbrechen</a>
+        <a class="button" [routerLink]="id ? ['/aufgabe', id] : bucket() === 'idea' ? ['/ideen'] : ['/']">Abbrechen</a>
         <button class="primary" type="submit" [disabled]="!title().trim() || (!!recurUnit() && !recurrence())">Speichern</button>
       </div>
     </form>
@@ -154,10 +193,12 @@ function sameValue(a: unknown, b: unknown): boolean {
 })
 export class TodoEdit implements OnInit {
   protected readonly store = inject(Store);
+  protected readonly voice = inject(Voice);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
-  protected readonly presets = DUE_PRESETS;
+  protected readonly fixedPresets = FIXED_PRESETS;
+  protected readonly windowPresets = WINDOW_PRESETS;
   protected readonly efforts = EFFORT_OPTIONS;
   protected readonly format = formatDate;
   protected readonly describe = describeRecurrence;
@@ -168,6 +209,9 @@ export class TodoEdit implements OnInit {
   protected readonly categoryId = signal<string | null>(null);
   protected readonly assigneeId = signal<string | null>(null);
   protected readonly dueDate = signal<string | null>(null);
+  protected readonly dueWindow = signal<DueWindow | null>(null);
+  protected readonly bucket = signal<Bucket | null>(null);
+  protected readonly important = signal(false);
   private readonly pickedEffort = signal<number | null>(null);
   protected readonly customAmount = signal<number | null>(null);
   protected readonly customUnit = signal<'min' | 'h'>('min');
@@ -177,6 +221,11 @@ export class TodoEdit implements OnInit {
   protected readonly remindDate = signal('');
   protected readonly remindTime = signal('');
   protected readonly formatReminder = formatReminder;
+
+  protected readonly heading = computed(() =>
+    this.bucket() === 'idea' ? (this.id ? 'Idee bearbeiten' : 'Neue Idee') : this.id ? 'Aufgabe bearbeiten' : 'Neue Aufgabe',
+  );
+  protected readonly windowText = computed(() => relativeDue(this.dueDate(), this.store.today(), this.dueWindow()));
 
   /** Zeitpunkt der Erinnerung; ohne Tag die Faelligkeit, sonst heute. */
   protected readonly remindAt = computed(() => {
@@ -194,7 +243,7 @@ export class TodoEdit implements OnInit {
   });
   protected readonly preview = computed(() => {
     const r = this.recurrence();
-    return r ? nextDue(r, this.dueDate(), this.store.today()) : null;
+    return r ? nextDue(r, this.dueDate(), this.store.today(), this.dueWindow()) : null;
   });
 
   protected readonly effortMinutes = computed(() => {
@@ -206,7 +255,12 @@ export class TodoEdit implements OnInit {
   ngOnInit(): void {
     this.id = this.route.snapshot.paramMap.get('id');
     const todo = this.id ? this.store.todo(this.id) : undefined;
+    const ablage = this.route.snapshot.queryParamMap.get('ablage');
+    if (!todo) this.bucket.set(ablage === 'idee' ? 'idea' : ablage === 'spaeter' ? 'later' : null);
     if (todo) {
+      this.important.set(!!todo.important);
+      this.dueWindow.set(todo.due_window ?? null);
+      this.bucket.set(todo.bucket ?? null);
       this.title.set(todo.title);
       this.description.set(todo.description);
       this.categoryId.set(todo.category_id);
@@ -235,8 +289,32 @@ export class TodoEdit implements OnInit {
     this.remindTime.set('');
   }
 
-  protected date(preset: DuePreset): string {
+  protected date(preset: DuePreset | WindowPreset): string {
     return resolvePreset(preset, this.store.today());
+  }
+
+  /** Fester Tag; ein Datum holt die Aufgabe aus der Ablage "Spaeter". */
+  protected pickDate(date: string | null): void {
+    this.dueDate.set(date);
+    this.dueWindow.set(null);
+    if (date && this.bucket() === 'later') this.bucket.set(null);
+  }
+
+  protected pickWindow(preset: WindowPreset, window: DueWindow): void {
+    this.pickDate(this.date(preset));
+    this.dueWindow.set(window);
+  }
+
+  protected pickNoDate(bucket: Bucket | null): void {
+    this.pickDate(null);
+    this.bucket.set(bucket);
+  }
+
+  protected async dictate(field: 'title' | 'description'): Promise<void> {
+    const spoken = await this.voice.listen(field);
+    if (!spoken) return;
+    const target = field === 'title' ? this.title : this.description;
+    target.set(appendSpoken(target(), spoken));
   }
 
   protected pickEffort(minutes: number | null): void {
@@ -245,19 +323,26 @@ export class TodoEdit implements OnInit {
   }
 
   protected async save(): Promise<void> {
+    // Ideen haben weder Faelligkeit noch Erinnerung noch Wiederholung.
+    const idea = this.bucket() === 'idea';
     const values: TodoPatch & { title: string } = {
       title: this.title().trim(),
       description: this.description(),
       category_id: this.categoryId(),
       assignee_id: this.assigneeId(),
-      due_date: this.dueDate(),
+      due_date: idea ? null : this.dueDate(),
+      due_window: idea || !this.dueDate() ? null : this.dueWindow(),
+      bucket: this.bucket(),
+      important: this.important(),
       effort_minutes: this.effortMinutes(),
-      recurrence: this.recurrence(),
-      remind_at: this.remindAt(),
+      recurrence: idea ? null : this.recurrence(),
+      remind_at: idea ? null : this.remindAt(),
     };
     if (!values.title) return;
 
-    const existing = this.id ? this.store.todo(this.id) : undefined;
+    const found = this.id ? this.store.todo(this.id) : undefined;
+    // Daten aus aelteren Versionen kennen "important" noch nicht; fehlend heisst false.
+    const existing = found ? { ...found, important: !!found.important } : undefined;
     if (this.id && existing) {
       const patch = Object.fromEntries(
         Object.entries(values).filter(([key, value]) => !sameValue(existing[key as keyof typeof existing], value)),
@@ -266,7 +351,7 @@ export class TodoEdit implements OnInit {
       await this.router.navigate(['/aufgabe', this.id]);
     } else {
       await this.store.createTodo(values);
-      await this.router.navigate(['/']);
+      await this.router.navigate([idea ? '/ideen' : '/']);
     }
   }
 }

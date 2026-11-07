@@ -440,3 +440,42 @@ input[type='radio'] {
 .login-gear {
   color: var(--primary);
 }
+
+/* Version 1.0.6 */
+.segmented button {
+  padding-inline: 4px;
+  min-width: 0;
+  font-size: 0.9375rem;
+}
+.search {
+  margin-bottom: var(--gap);
+}
+.star {
+  color: var(--accent);
+  margin-right: 4px;
+}
+.mic {
+  align-self: flex-end;
+  min-width: 48px;
+}
+.mic.active {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+.update-banner {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--surface-2);
+  border-bottom: 2px solid var(--border);
+  font-weight: 600;
+}
+/* Fuenf Reiter: Breite nach Beschriftung verteilen, damit "Einstellungen" auf schmalen Handys passt. */
+.tabbar a {
+  flex: 1 1 auto;
+  font-size: 0.75rem;
+  padding-inline: 4px;
+}

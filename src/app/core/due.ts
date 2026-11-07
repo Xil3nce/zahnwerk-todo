@@ -1,5 +1,5 @@
 // Faelligkeit ist ein reines Kalenderdatum (YYYY-MM-DD) nach Europe/Berlin.
-import { Recurrence } from './models';
+import { DueWindow, Recurrence } from './models';
 const TIME_ZONE = 'Europe/Berlin';
 
 export type DuePreset = 'today' | 'tomorrow' | 'this_week' | 'next_week' | 'this_month';
@@ -66,6 +66,24 @@ export function resolvePreset(preset: DuePreset, today: string): string {
   }
 }
 
+/** Zeitfenster statt Stichtag; das Datum ist jeweils das Ende des Fensters. */
+export type WindowPreset = 'this_week' | 'next_week' | 'this_month';
+
+export const WINDOW_PRESETS: { id: WindowPreset; label: string; window: DueWindow }[] = [
+  { id: 'this_week', label: 'Irgendwann diese Woche', window: 'week' },
+  { id: 'next_week', label: 'Irgendwann nächste Woche', window: 'week' },
+  { id: 'this_month', label: 'Bis Monatsende', window: 'month' },
+];
+
+/** Ende des Fensters, in dem das Datum liegt; Spiegel von private.snap_window. */
+export function snapWindow(date: string, window: DueWindow | null | undefined): string {
+  if (window === 'week') return endOfWeek(date);
+  if (window === 'month') return endOfMonth(date);
+  return date;
+}
+
+const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+
 const WEEKDAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 
 export function formatDate(date: string): string {
@@ -76,11 +94,23 @@ export function formatDate(date: string): string {
 }
 
 /** Relative Anzeige; wird bei jedem Rendern aus dem heutigen Datum berechnet. */
-export function relativeDue(due: string | null, today: string): string {
+export function relativeDue(due: string | null, today: string, window?: DueWindow | null): string {
   if (!due) return 'Ohne Datum';
   const days = diffDays(today, due);
   if (days < -1) return `Seit ${-days} Tagen überfällig`;
   if (days === -1) return 'Seit gestern überfällig';
+  if (window === 'week') {
+    if (days === 0) return 'Diese Woche, heute letzter Tag';
+    if (due === endOfWeek(today)) return 'Irgendwann diese Woche';
+    if (due === addDays(endOfWeek(today), 7)) return 'Irgendwann nächste Woche';
+    return `In der Woche bis ${formatDate(due)}`;
+  }
+  if (window === 'month') {
+    if (days === 0) return 'Bis Monatsende, heute letzter Tag';
+    if (due === endOfMonth(today)) return 'Bis Monatsende';
+    const d = toUtc(due);
+    return `Bis Ende ${MONTHS[d.getUTCMonth()]}${d.getUTCFullYear() === toUtc(today).getUTCFullYear() ? '' : ' ' + d.getUTCFullYear()}`;
+  }
   if (days === 0) return 'Heute';
   if (days === 1) return 'Morgen';
   if (due <= endOfWeek(today)) return `Diese Woche (${WEEKDAYS[toUtc(due).getUTCDay()]})`;
@@ -136,7 +166,11 @@ export function addMonths(date: string, months: number): string {
  * Naechster Termin einer Wiederholung; Spiegel von private.next_due in der Datenbank,
  * die die Folgeaufgabe tatsaechlich anlegt. Hier nur fuer die Vorschau.
  */
-export function nextDue(r: Recurrence, due: string | null, done: string): string {
+export function nextDue(r: Recurrence, due: string | null, done: string, window?: DueWindow | null): string {
+  return snapWindow(nextDueRaw(r, due, done), window);
+}
+
+function nextDueRaw(r: Recurrence, due: string | null, done: string): string {
   const step = (k: number, from: string) =>
     r.unit === 'month' ? addMonths(from, k * r.every) : addDays(from, k * r.every * (r.unit === 'week' ? 7 : 1));
   if (r.mode === 'completion' || !due) return step(1, done);
