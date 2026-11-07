@@ -127,7 +127,7 @@ label {
   display: block;
   font-weight: 600;
 }
-input:not([type='checkbox']),
+input:not([type='checkbox']):not([type='radio']),
 select,
 textarea {
   display: block;
@@ -343,7 +343,8 @@ button.danger {
   min-height: 44px;
   font-weight: 400;
 }
-input[type='checkbox'] {
+input[type='checkbox'],
+input[type='radio'] {
   flex: none;
   width: 24px;
   height: 24px;

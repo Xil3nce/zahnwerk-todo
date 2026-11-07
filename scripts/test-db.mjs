@@ -203,6 +203,83 @@ await test('Kategorie-Farbe: wird gespeichert, alte Clients ohne Farbe loeschen 
   assert.equal(bad.rejected.length, 1);
 });
 
+await test('Wiederholung: naechster Termin nach Plan, ab Erledigung und mit Monatsende', async () => {
+  const next = async (r, due, done) =>
+    (await rows('select private.next_due($1::jsonb, $2::date, $3::date)::text d', [JSON.stringify(r), due, done]))[0].d;
+  const week = { every: 1, unit: 'week', mode: 'schedule' };
+  // Dienstag faellig, Dienstag erledigt: naechster Dienstag.
+  assert.equal(await next(week, '2026-11-10', '2026-11-10'), '2026-11-17');
+  // Einen Tag frueher erledigt: trotzdem der naechste Dienstag, nicht der gleiche.
+  assert.equal(await next(week, '2026-11-10', '2026-11-09'), '2026-11-17');
+  // Drei Wochen zu spaet (an einem Dienstag): naechster Dienstag nach heute, nicht heute.
+  assert.equal(await next(week, '2026-11-10', '2026-12-01'), '2026-12-08');
+  assert.equal(await next({ every: 2, unit: 'week', mode: 'schedule' }, '2026-11-10', '2026-11-12'), '2026-11-24');
+  assert.equal(await next({ every: 3, unit: 'day', mode: 'completion' }, '2026-11-10', '2026-11-12'), '2026-11-15');
+  assert.equal(await next({ every: 1, unit: 'month', mode: 'schedule' }, '2026-01-31', '2026-01-31'), '2026-02-28');
+  assert.equal(await next({ every: 1, unit: 'month', mode: 'schedule' }, '2026-01-31', '2026-03-05'), '2026-03-31');
+  assert.equal(await next({ every: 1, unit: 'month', mode: 'completion' }, null, '2026-05-31'), '2026-06-30');
+  // Ohne Faelligkeit zaehlt der Erledigungstag, auch im Modus "schedule".
+  assert.equal(await next(week, null, '2026-11-12'), '2026-11-19');
+});
+
+await test('Wiederholung: Erledigen legt genau eine Folgeaufgabe an, mit offenen Unteraufgaben', async () => {
+  const id = uuid();
+  const rec = { every: 1, unit: 'week', mode: 'completion' };
+  await push(F, op('todo', id, { title: 'Müll raus', due_date: '2026-11-10', recurrence: rec, assignee_id: melina }));
+  await push(F, op('subtask', uuid(), { todo_id: id, title: 'Gelbe Tonne', is_done: true, sort_order: 1, deleted_at: null }));
+  await push(F, op('subtask', uuid(), { todo_id: id, title: 'Weg', is_done: false, sort_order: 2, deleted_at: new Date().toISOString() }));
+  await db.exec('delete from public.notification_log;');
+  const before = (await pull(M)).cursor;
+
+  await push(M, op('todo', id, { status: 'done' }));
+  const [orig] = await rows('select spawned_id from public.todos where id = $1', [id]);
+  assert.ok(orig.spawned_id);
+  // Basis ist der Erledigungstag (Berliner Datum von done_at), nicht der Tag der Synchronisation.
+  const [copy] = await rows(`select n.title, n.status, n.assignee_id, n.recurrence, n.recurred_from,
+      n.due_date = (o.done_at at time zone 'Europe/Berlin')::date + 7 as d
+    from public.todos n join public.todos o on o.id = n.recurred_from where n.id = $1`, [orig.spawned_id]);
+  assert.deepEqual(copy,
+    { title: 'Müll raus', status: 'open', assignee_id: melina, recurrence: rec, recurred_from: id, d: true });
+  const subs = await rows('select title, is_done from public.subtasks where todo_id = $1 and deleted_at is null', [orig.spawned_id]);
+  assert.deepEqual(subs, [{ title: 'Gelbe Tonne', is_done: false }]);
+
+  // Freddy bekommt nur "erledigt", kein zusaetzliches "neu" fuer die Folgeaufgabe.
+  const sent = await rows('select kind, todo_id from public.notification_log');
+  assert.deepEqual(sent, [{ kind: 'done', todo_id: id }]);
+
+  // Die Folgeaufgabe kommt per Pull auf beide Geraete.
+  const pulled = await pull(F, before);
+  assert.ok(pulled.todos.some((t) => t.id === orig.spawned_id && t.recurred_from === id));
+  assert.ok(pulled.subtasks.some((s) => s.todo_id === orig.spawned_id));
+
+  // Wieder oeffnen und erneut erledigen erzeugt keine zweite; Freddys spaetes Offline-Erledigen auch nicht.
+  await push(M, op('todo', id, { status: 'open' }));
+  await push(M, op('todo', id, { status: 'done' }));
+  await push(F, op('todo', id, { status: 'done' }));
+  assert.equal((await rows('select count(*)::int c from public.todos where recurred_from = $1', [id]))[0].c, 1);
+});
+
+await test('Wiederholung: aendern, abschalten, Unsinn ablehnen; ohne Wiederholung keine Folgeaufgabe', async () => {
+  const id = uuid();
+  await push(F, op('todo', id, { title: 'Gießen', recurrence: { every: 3, unit: 'day', mode: 'schedule' } }));
+  await push(F, op('todo', id, { recurrence: null }));
+  assert.equal((await rows('select recurrence from public.todos where id = $1', [id]))[0].recurrence, null);
+  await push(F, op('todo', id, { status: 'done' }));
+  assert.equal((await rows('select spawned_id from public.todos where id = $1', [id]))[0].spawned_id, null);
+
+  for (const bad of [{ every: 0, unit: 'day', mode: 'schedule' }, { every: 1.5, unit: 'day', mode: 'schedule' },
+    { every: 1, unit: 'year', mode: 'schedule' }, { every: '1', unit: 'day', mode: 'schedule' }, { every: 1, unit: 'day' }]) {
+    const r = await push(F, op('todo', uuid(), { title: 'x', recurrence: bad }));
+    assert.equal(r.rejected.length, 1, JSON.stringify(bad));
+  }
+
+  // Melina wird ueber eine geaenderte Wiederholung informiert.
+  const t = uuid();
+  await push(F, op('todo', t, { title: 'Bettwäsche' }));
+  await push(F, op('todo', t, { recurrence: { every: 2, unit: 'week', mode: 'schedule' } }));
+  assert.match((await log(t)).at(-1).body, /Wiederholung/);
+});
+
 await test('Kategorie und Unteraufgabe: aelterer Datensatz verliert', async () => {
   const c = uuid();
   await push(F, op('category', c, { name: 'Neu', sort_order: 9, deleted_at: null }, '2026-02-03T12:00:00Z'));

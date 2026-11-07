@@ -2,7 +2,7 @@ import { DatePipe } from '@angular/common';
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { formatDate, formatEffort, relativeDue } from '../core/due';
+import { describeRecurrence, formatDate, formatEffort, relativeDue } from '../core/due';
 import { Store } from '../core/store';
 
 @Component({
@@ -20,6 +20,10 @@ import { Store } from '../core/store';
           <dd>{{ due() }}@if (t.due_date) { <span class="meta"> ({{ format(t.due_date) }})</span> }</dd>
           <dt>Zuständig</dt><dd>{{ name(t.assignee_id) ?? 'Beide' }}</dd>
           <dt>Kategorie</dt><dd>@if (store.categoryColor(t.category_id); as color) { <span class="swatch small" aria-hidden="true" [style.background]="color"></span> }{{ store.categoryName(t.category_id) }}</dd>
+          @if (t.recurrence; as r) {
+            <dt>Wiederholung</dt>
+            <dd>{{ describe(r) }}@if (t.spawned_id) { <span class="meta"> (nächste ist angelegt)</span> }</dd>
+          }
           <dt>Zeitaufwand</dt><dd>{{ effort(t.effort_minutes) || 'Keine Angabe' }}</dd>
           <dt>Status</dt>
           <dd>
@@ -91,6 +95,7 @@ export class TodoDetail {
   protected readonly tz = 'Europe/Berlin';
   protected readonly format = formatDate;
   protected readonly effort = formatEffort;
+  protected readonly describe = describeRecurrence;
   protected readonly newSubtask = signal('');
   protected readonly newComment = signal('');
 

@@ -1,7 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { formatEffort, relativeDue } from '../core/due';
+import { describeRecurrence, formatEffort, relativeDue } from '../core/due';
 import { Todo } from '../core/models';
 import { Store } from '../core/store';
 import { DEFAULT_FILTERS, dueOptions, Filters, selectTodos, SortBy, View } from '../core/views';
@@ -86,7 +86,7 @@ const PULL_THRESHOLD = 70;
               (change)="store.toggleDone(todo)" />
             <a [routerLink]="['/aufgabe', todo.id]">
               <strong>{{ todo.title }}</strong>
-              <span class="meta" [class.overdue]="isOverdue(todo)">{{ due(todo) }}</span>
+              <span class="meta" [class.overdue]="isOverdue(todo)">{{ due(todo) }}@if (todo.recurrence; as r) { <span [attr.aria-label]="', ' + describe(r)" [title]="describe(r)"> · 🔁</span> }</span>
               <span class="meta">
                 {{ assignee(todo) }} ·
                 @if (store.categoryColor(todo.category_id); as color) { <span class="swatch small" aria-hidden="true" [style.background]="color"></span> }
@@ -124,6 +124,7 @@ export class TodoList {
   );
   protected readonly filtersActive = computed(() => JSON.stringify(this.filters()) !== JSON.stringify(DEFAULT_FILTERS));
   protected readonly effort = formatEffort;
+  protected readonly describe = describeRecurrence;
 
   protected readonly dueOptions = computed(() => dueOptions(this.view()));
 

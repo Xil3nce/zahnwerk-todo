@@ -1,4 +1,5 @@
 // Faelligkeit ist ein reines Kalenderdatum (YYYY-MM-DD) nach Europe/Berlin.
+import { Recurrence } from './models';
 const TIME_ZONE = 'Europe/Berlin';
 
 export type DuePreset = 'today' | 'tomorrow' | 'this_week' | 'next_week' | 'this_month';
@@ -85,6 +86,43 @@ export function relativeDue(due: string | null, today: string): string {
   if (due <= endOfWeek(today)) return `Diese Woche (${WEEKDAYS[toUtc(due).getUTCDay()]})`;
   if (due <= addDays(endOfWeek(today), 7)) return `Nächste Woche (${WEEKDAYS[toUtc(due).getUTCDay()]})`;
   return formatDate(due);
+}
+
+/** Wie Postgres "date + n months": Tag auf das Monatsende gekappt. */
+export function addMonths(date: string, months: number): string {
+  const d = toUtc(date);
+  const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, 1));
+  const last = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(d.getUTCDate(), last));
+  return fromUtc(target);
+}
+
+/**
+ * Naechster Termin einer Wiederholung; Spiegel von private.next_due in der Datenbank,
+ * die die Folgeaufgabe tatsaechlich anlegt. Hier nur fuer die Vorschau.
+ */
+export function nextDue(r: Recurrence, due: string | null, done: string): string {
+  const step = (k: number, from: string) =>
+    r.unit === 'month' ? addMonths(from, k * r.every) : addDays(from, k * r.every * (r.unit === 'week' ? 7 : 1));
+  if (r.mode === 'completion' || !due) return step(1, done);
+  if (r.unit === 'month') {
+    let k = 1;
+    while (step(k, due) <= done) k++;
+    return step(k, due);
+  }
+  const days = r.every * (r.unit === 'week' ? 7 : 1);
+  return step(Math.max(1, Math.floor(diffDays(due, done) / days) + 1), due);
+}
+
+export function describeRecurrence(r: Recurrence): string {
+  const names = {
+    day: ['Täglich', 'Tage'],
+    week: ['Wöchentlich', 'Wochen'],
+    month: ['Monatlich', 'Monate'],
+  } as const;
+  const [single, plural] = names[r.unit];
+  const base = r.every === 1 ? single : `Alle ${r.every} ${plural}`;
+  return r.mode === 'completion' ? `${base}, ab Erledigung` : base;
 }
 
 export function formatEffort(minutes: number | null): string {

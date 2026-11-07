@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, berlinToday, endOfMonth, endOfWeek, formatEffort, relativeDue, resolvePreset } from './due';
+import { addDays, addMonths, berlinToday, describeRecurrence, endOfMonth, endOfWeek, formatEffort, nextDue, relativeDue, resolvePreset } from './due';
+import { Recurrence } from './models';
 
 describe('berlinToday', () => {
   it('wechselt um Mitternacht Berliner Zeit, nicht UTC', () => {
@@ -77,5 +78,38 @@ describe('formatEffort', () => {
     expect(formatEffort(60)).toBe('1 Std.');
     expect(formatEffort(90)).toBe('1 Std. 30 Min.');
     expect(formatEffort(null)).toBe('');
+  });
+});
+
+// Gleiche Faelle wie in scripts/test-db.mjs fuer private.next_due: App-Vorschau und Server muessen uebereinstimmen.
+describe('nextDue', () => {
+  const week: Recurrence = { every: 1, unit: 'week', mode: 'schedule' };
+
+  it('folgt im Modus "schedule" dem festen Takt, erster Termin nach dem Erledigungstag', () => {
+    expect(nextDue(week, '2026-11-10', '2026-11-10')).toBe('2026-11-17');
+    expect(nextDue(week, '2026-11-10', '2026-11-09')).toBe('2026-11-17');
+    expect(nextDue(week, '2026-11-10', '2026-12-01')).toBe('2026-12-08');
+    expect(nextDue({ every: 2, unit: 'week', mode: 'schedule' }, '2026-11-10', '2026-11-12')).toBe('2026-11-24');
+  });
+
+  it('rechnet im Modus "completion" und ohne Faelligkeit ab dem Erledigungstag', () => {
+    expect(nextDue({ every: 3, unit: 'day', mode: 'completion' }, '2026-11-10', '2026-11-12')).toBe('2026-11-15');
+    expect(nextDue(week, null, '2026-11-12')).toBe('2026-11-19');
+  });
+
+  it('kappt Monate wie Postgres auf das Monatsende', () => {
+    expect(nextDue({ every: 1, unit: 'month', mode: 'schedule' }, '2026-01-31', '2026-01-31')).toBe('2026-02-28');
+    expect(nextDue({ every: 1, unit: 'month', mode: 'schedule' }, '2026-01-31', '2026-03-05')).toBe('2026-03-31');
+    expect(nextDue({ every: 1, unit: 'month', mode: 'completion' }, null, '2026-05-31')).toBe('2026-06-30');
+    expect(addMonths('2028-01-30', 1)).toBe('2028-02-29');
+    expect(addMonths('2026-11-15', 2)).toBe('2027-01-15');
+  });
+});
+
+describe('describeRecurrence', () => {
+  it('beschreibt Takt und Modus', () => {
+    expect(describeRecurrence({ every: 1, unit: 'week', mode: 'schedule' })).toBe('Wöchentlich');
+    expect(describeRecurrence({ every: 3, unit: 'day', mode: 'completion' })).toBe('Alle 3 Tage, ab Erledigung');
+    expect(describeRecurrence({ every: 2, unit: 'month', mode: 'schedule' })).toBe('Alle 2 Monate');
   });
 });
