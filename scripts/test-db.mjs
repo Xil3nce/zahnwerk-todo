@@ -323,6 +323,28 @@ await test('Push erledigt: geht an alle ausser die Person selbst, egal wem zugeo
   assert.deepEqual((await log(id)).map((l) => [l.kind, l.n]), [['done', 'Melina']]);
 });
 
+await test('Push erledigt: nennt bei Wiederholung den Termin der Folgeaufgabe, beim zweiten Erledigen nicht', async () => {
+  await db.exec('delete from public.notification_log;');
+  const id = uuid();
+  await push(M, op('todo', id, { title: 'Einkaufen', due_date: '2026-11-10', recurrence: { every: 1, unit: 'week', mode: 'schedule' } }));
+  await push(M, op('todo', id, { status: 'done' }));
+  const [{ d }] = await rows(`select to_char(due_date, 'DD.MM.') d from public.todos where recurred_from = $1`, [id]);
+  assert.deepEqual((await log(id)).map((l) => [l.kind, l.n, l.body]),
+    [['new', 'Freddy', 'Melina hat eine neue Aufgabe angelegt'], ['done', 'Freddy', `Erledigt von Melina, nächste fällig am ${d}`]]);
+
+  await push(M, op('todo', id, { status: 'open' }));
+  await push(M, op('todo', id, { status: 'done' }));
+  assert.equal((await log(id)).at(-1).body, 'Erledigt von Melina');
+
+  // Abschaltbar pro Person wie bisher.
+  await db.query('update public.profiles set notify_done = false where id = $1', [freddy]);
+  const t = uuid();
+  await push(M, op('todo', t, { title: 'Still', recurrence: { every: 1, unit: 'day', mode: 'completion' } }));
+  await push(M, op('todo', t, { status: 'done' }));
+  assert.equal((await log(t)).filter((l) => l.kind === 'done').length, 0);
+  await db.query('update public.profiles set notify_done = true where id = $1', [freddy]);
+});
+
 await test('Push Aenderung: nur Betroffene, Entzug wird noch gemeldet, Texte stimmen', async () => {
   const id = uuid();
   await push(F, op('todo', id, { title: 'T', assignee_id: freddy }));
