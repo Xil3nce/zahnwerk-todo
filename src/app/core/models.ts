@@ -84,7 +84,19 @@ export interface Comment {
   deleted_at: string | null;
 }
 
-export type Entity = 'todo' | 'subtask' | 'comment' | 'category';
+/** Vorlage fuer wiederkehrende Ablaeufe ("Urlaub packen"); items werden beim Starten zu Unteraufgaben. Ab 1.0.8. */
+export interface Template {
+  id: string;
+  title: string;
+  description: string;
+  category_id: string | null;
+  effort_minutes: number | null;
+  important: boolean;
+  items: string[];
+  deleted_at: string | null;
+}
+
+export type Entity = 'todo' | 'subtask' | 'comment' | 'category' | 'template';
 
 export interface OutboxOp {
   seq?: number;

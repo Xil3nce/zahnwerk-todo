@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { ZahnwerkDb } from './db';
-import { OutboxOp, Todo } from './models';
+import { OutboxOp, Template, Todo } from './models';
 import { PullResult, runSync, SyncBackend } from './sync-engine';
 
 const todo = (id: string, patch: Partial<Todo> = {}): Todo => ({
@@ -88,5 +88,38 @@ describe('runSync', () => {
     await runSync(db, { push: async () => ({ applied: [], rejected: [] }), pull: async (c) => { seen = c; return emptyPull(50); } });
     expect(seen).toBe(42);
     expect((await db.meta.get('cursor'))?.value).toBe(50);
+  });
+});
+
+describe('Vorlagen im Sync', () => {
+  const tpl = (id: string, patch: Partial<Template> = {}): Template => ({
+    id, title: id, description: '', category_id: null, effort_minutes: null, important: false, items: [], deleted_at: null, ...patch,
+  });
+
+  it('speichert gezogene Vorlagen und vertraegt Server ohne Vorlagen', async () => {
+    const db = new ZahnwerkDb(`test-${crypto.randomUUID()}`);
+    await db.open();
+    const base = { todos: [], subtasks: [], comments: [], categories: [], profiles: [] };
+    await runSync(db, { push: async () => ({ applied: [], rejected: [] }), pull: async () => ({ cursor: 3, ...base }) });
+    expect(await db.templates.count()).toBe(0);
+    await runSync(db, {
+      push: async () => ({ applied: [], rejected: [] }),
+      pull: async () => ({ cursor: 4, ...base, templates: [tpl('urlaub', { items: ['Pass', 'Ladekabel'] })] as never[] }),
+    });
+    expect((await db.templates.get('urlaub'))?.items).toEqual(['Pass', 'Ladekabel']);
+  });
+
+  it('lokale Aenderung waehrend des Syncs wird vom Pull nicht ueberschrieben', async () => {
+    const db = new ZahnwerkDb(`test-${crypto.randomUUID()}`);
+    await db.open();
+    await db.templates.put(tpl('putzen', { title: 'Alt' }));
+    await runSync(db, {
+      push: async () => ({ applied: [], rejected: [] }),
+      pull: async () => {
+        await db.outbox.add({ op_id: 'x', entity: 'template', id: 'putzen', fields: { title: 'Neu' }, changed_at: '' });
+        return { cursor: 5, todos: [], subtasks: [], comments: [], categories: [], profiles: [], templates: [tpl('putzen', { title: 'Server' })] as never[] };
+      },
+    });
+    expect((await db.templates.get('putzen'))?.title).toBe('Neu');
   });
 });

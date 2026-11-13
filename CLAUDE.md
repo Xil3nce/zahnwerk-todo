@@ -28,6 +28,8 @@ App auf Deutsch, Sideload-APK für zwei Personen, keine kostenpflichtigen Dienst
 - `due_window` (`week`/`month`): Zeitfenster; `due_date` ist dann das Fensterende, Folgeaufgaben rasten per `private.snap_window` ein.
 - Ruhezeiten 22–7 Uhr (Europe/Berlin) pro Profil (`quiet_hours`): `claim_notifications` hält zurück, morgens eine Sammelmeldung (`kind = 'digest'`).
 - Papierkorb: `deleted_at` bleibt 30 Tage wiederherstellbar; `private.cleanup()` löscht danach endgültig.
+- Vorlagen (`templates`, ab 1.0.8): ganzer Datensatz LWW wie Kategorien, `items` = Checkliste (max. 100 Texte); „Starten“ legt clientseitig Aufgabe + Unteraufgaben in einer Transaktion an, keine Verknüpfung auf dem Server.
+- „Ich hab Zeit“ (`/zeit`): `suggestForTime` in `views.ts`, nur Aufgaben mit `effort_minutes`; Rang überfällig → heute → wichtig → Woche → später → ohne Datum.
 - Spracheingabe: `@capgo/capacitor-speech-recognition` (v8 passt zu Capacitor 8).
 - Farben und Abstände nur über CSS-Variablen in `src/styles.scss`.
 

@@ -44,6 +44,11 @@ function savedView(): View {
         @if (query()) { <button type="button" aria-label="Suche leeren" (click)="query.set('')">×</button> }
       </div>
 
+      <div class="row quick-links">
+        <a class="button" routerLink="/zeit">⏱ Ich hab Zeit</a>
+        <a class="button" routerLink="/vorlagen">📋 Vorlagen</a>
+      </div>
+
       @if (searching()) {
         <p class="meta" role="status">{{ hits().length }} Treffer</p>
         <ul class="todo-list">

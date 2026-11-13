@@ -8,6 +8,8 @@ export interface PullResult {
   comments: never[] | Record<string, unknown>[];
   categories: never[] | Record<string, unknown>[];
   profiles: never[] | Record<string, unknown>[];
+  /** Fehlt bei Servern ohne Migration 20261113090000_templates. */
+  templates?: never[] | Record<string, unknown>[];
 }
 
 export interface PushResult {
@@ -45,17 +47,18 @@ export async function runSync(db: ZahnwerkDb, backend: SyncBackend): Promise<Pus
   const cursor = ((await db.meta.get('cursor'))?.value as number | undefined) ?? 0;
   const pulled = await backend.pull(cursor);
 
-  await db.transaction('rw', [db.todos, db.subtasks, db.comments, db.categories, db.profiles, db.outbox, db.meta], async () => {
+  await db.transaction('rw', [db.todos, db.subtasks, db.comments, db.categories, db.templates, db.profiles, db.outbox, db.meta], async () => {
     await db.todos.bulkPut(pulled.todos);
     await db.subtasks.bulkPut(pulled.subtasks as never[]);
     await db.comments.bulkPut(pulled.comments as never[]);
     await db.categories.bulkPut(pulled.categories as never[]);
     await db.profiles.bulkPut(pulled.profiles as never[]);
+    await db.templates.bulkPut((pulled.templates ?? []) as never[]);
 
     // Waehrend des Syncs entstandene Aenderungen duerfen vom Pull nicht ueberschrieben werden.
     const pending = await db.outbox.orderBy('seq').toArray();
     for (const op of pending) {
-      const table = { todo: db.todos, subtask: db.subtasks, comment: db.comments, category: db.categories }[op.entity];
+      const table = { todo: db.todos, subtask: db.subtasks, comment: db.comments, category: db.categories, template: db.templates }[op.entity];
       const row = await (table as typeof db.todos).get(op.id);
       if (row) await (table as typeof db.todos).put(applyOp(row as never, op) as never);
     }

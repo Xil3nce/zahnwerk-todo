@@ -51,6 +51,8 @@ import { Store } from '../core/store';
           </button>
           @if (t.bucket === 'idea') {
             <button type="button" (click)="plan(t.id)">Als Aufgabe einplanen</button>
+          } @else {
+            <button type="button" (click)="saveAsTemplate()">Als Vorlage speichern</button>
           }
         </div>
       </section>
@@ -149,6 +151,14 @@ export class TodoDetail {
     const idea = this.todo()?.bucket === 'idea';
     await this.store.deleteTodo(id);
     await this.router.navigate([idea ? '/ideen' : '/']);
+  }
+
+  /** Aufgabe samt Unteraufgaben als Vorlage sichern; danach die Vorlage zum Nachbessern oeffnen. */
+  protected async saveAsTemplate(): Promise<void> {
+    const todo = this.todo();
+    if (!todo) return;
+    const id = await this.store.templateFromTodo(todo);
+    await this.router.navigate(['/vorlagen', id]);
   }
 
   /** Idee wird zur Aufgabe; danach gleich Faelligkeit usw. festlegen. */

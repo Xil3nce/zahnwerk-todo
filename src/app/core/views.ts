@@ -208,3 +208,58 @@ export function openIdeas(todos: Todo[]): Todo[] {
     .filter((t) => !t.deleted_at && t.bucket === 'idea' && t.status === 'open')
     .sort((a, b) => b.created_at.localeCompare(a.created_at) || a.title.localeCompare(b.title, 'de'));
 }
+
+// ------------------------------------------------------------ "Ich hab X Minuten"
+
+export interface TimeSuggestion {
+  /** Vorschlag, der die Zeit moeglichst sinnvoll fuellt: Dringendes zuerst. */
+  plan: Todo[];
+  planMinutes: number;
+  /** Weitere Aufgaben, die einzeln in die Zeit passen. */
+  others: Todo[];
+  /** Offene Aufgaben ohne Zeitangabe; die koennen nicht vorgeschlagen werden. */
+  withoutEffort: number;
+}
+
+/** 0 ueberfaellig, 1 heute, 2 wichtig, 3 diese Woche, 4 spaeter, 5 ohne Datum. */
+export function timeRank(todo: Todo, today: string): number {
+  const date = todo.due_date;
+  if (date && date < today) return 0;
+  if (date === today) return 1;
+  if (todo.important) return 2;
+  if (date && date <= endOfWeek(today)) return 3;
+  return date ? 4 : 5;
+}
+
+/**
+ * Schlaegt offene Aufgaben (keine Ideen) vor, deren Zeitaufwand in die verfuegbaren Minuten passt.
+ * person: "any" oder eine Profil-ID; eine Person bekommt auch Aufgaben fuer "Beide".
+ */
+export function suggestForTime(todos: Todo[], minutes: number, person: string, today: string): TimeSuggestion {
+  const open = todos.filter(
+    (t) =>
+      !t.deleted_at && t.status === 'open' && t.bucket !== 'idea' &&
+      (person === 'any' || t.assignee_id === null || t.assignee_id === person),
+  );
+  const candidates = open
+    .filter((t) => !!t.effort_minutes && t.effort_minutes <= minutes)
+    .sort((a, b) =>
+      timeRank(a, today) - timeRank(b, today) ||
+      (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999') ||
+      b.effort_minutes! - a.effort_minutes! ||
+      a.title.localeCompare(b.title, 'de'));
+  const plan: Todo[] = [];
+  let left = minutes;
+  for (const t of candidates) {
+    if (t.effort_minutes! <= left) {
+      plan.push(t);
+      left -= t.effort_minutes!;
+    }
+  }
+  return {
+    plan,
+    planMinutes: minutes - left,
+    others: candidates.filter((t) => !plan.includes(t)),
+    withoutEffort: open.filter((t) => !t.effort_minutes).length,
+  };
+}

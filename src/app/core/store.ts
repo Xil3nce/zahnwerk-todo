@@ -4,7 +4,7 @@ import { liveQuery } from 'dexie';
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './config';
 import { ZahnwerkDb } from './db';
 import { berlinToday } from './due';
-import { Category, Comment, Entity, Profile, Subtask, Todo, TodoPatch } from './models';
+import { Category, Comment, Entity, Profile, Subtask, Template, Todo, TodoPatch } from './models';
 import { PullResult, PushResult, runSync, SyncBackend } from './sync-engine';
 
 @Injectable({ providedIn: 'root' })
@@ -19,6 +19,7 @@ export class Store {
   private readonly allSubtasks = signal<Subtask[]>([]);
   private readonly allComments = signal<Comment[]>([]);
   private readonly allCategories = signal<Category[]>([]);
+  private readonly allTemplates = signal<Template[]>([]);
   readonly profiles = signal<Profile[]>([]);
   readonly pendingCount = signal(0);
 
@@ -33,6 +34,9 @@ export class Store {
   readonly comments = this.allComments.asReadonly();
   readonly categories = computed(() =>
     this.allCategories().filter((c) => !c.deleted_at).sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'de')),
+  );
+  readonly templates = computed(() =>
+    this.allTemplates().filter((t) => !t.deleted_at).sort((a, b) => a.title.localeCompare(b.title, 'de')),
   );
   readonly me = computed(() => this.profiles().find((p) => p.user_id === this.session()?.user.id) ?? null);
 
@@ -55,6 +59,7 @@ export class Store {
     watch(() => this.db.subtasks.toArray(), (v) => this.allSubtasks.set(v));
     watch(() => this.db.comments.toArray(), (v) => this.allComments.set(v));
     watch(() => this.db.categories.toArray(), (v) => this.allCategories.set(v));
+    watch(() => this.db.templates.toArray(), (v) => this.allTemplates.set(v));
     watch(() => this.db.profiles.toArray(), (v) => this.profiles.set(v));
     watch(() => this.db.outbox.count(), (v) => this.pendingCount.set(v));
 
@@ -250,6 +255,79 @@ export class Store {
 
   deleteCategory(row: Category): Promise<void> {
     return this.putCategory({ ...row, deleted_at: new Date().toISOString() });
+  }
+
+  // ------------------------------------------------------------ Vorlagen
+
+  template(id: string): Template | undefined {
+    return this.templates().find((t) => t.id === id);
+  }
+
+  /** Vorlagen gehen wie Kategorien immer als vollstaendiger Datensatz in die Outbox. */
+  async saveTemplate(row: Template): Promise<void> {
+    await this.db.transaction('rw', this.db.templates, this.db.outbox, async () => {
+      await this.db.templates.put(row);
+      await this.record('template', row.id, {
+        title: row.title, description: row.description, category_id: row.category_id, effort_minutes: row.effort_minutes,
+        important: row.important, items: row.items, deleted_at: row.deleted_at,
+      });
+    });
+    // liveQuery meldet sich erst spaeter; eine gleich danach geoeffnete Seite soll die Vorlage schon finden.
+    this.allTemplates.update((list) => [...list.filter((t) => t.id !== row.id), row]);
+    this.afterChange();
+  }
+
+  deleteTemplate(row: Template): Promise<void> {
+    return this.saveTemplate({ ...row, deleted_at: new Date().toISOString() });
+  }
+
+  /** Neue Vorlage aus einer bestehenden Aufgabe; offene und erledigte Unteraufgaben werden zur Checkliste. */
+  async templateFromTodo(todo: Todo): Promise<string> {
+    const id = crypto.randomUUID();
+    await this.saveTemplate({
+      // Grenzen wie in der Datenbank (Beschreibung 4000 Zeichen, Checkliste 100 Punkte), sonst lehnt der Server die Vorlage ab.
+      id, title: todo.title, description: (todo.description ?? '').slice(0, 4000), category_id: todo.category_id,
+      effort_minutes: todo.effort_minutes, important: !!todo.important,
+      items: this.subtasksOf(todo.id).map((s) => s.title).slice(0, 100), deleted_at: null,
+    });
+    return id;
+  }
+
+  /**
+   * Legt aus einer Vorlage eine normale Aufgabe mit Unteraufgaben an, alles in einer Transaktion,
+   * damit die Aufgabe vor ihren Unteraufgaben beim Server ankommt.
+   */
+  async startTemplate(tpl: Template, extra: TodoPatch = {}): Promise<string> {
+    const id = crypto.randomUUID();
+    // Eine inzwischen geloeschte Kategorie wuerde die Aufgabe unsichtbar einsortieren.
+    const category_id = this.categories().some((c) => c.id === tpl.category_id) ? tpl.category_id : null;
+    const patch: TodoPatch & { title: string } = {
+      title: tpl.title, description: tpl.description, category_id, effort_minutes: tpl.effort_minutes,
+      important: tpl.important, ...extra,
+    };
+    const row: Todo = {
+      id, description: '', category_id: null, due_date: null, assignee_id: null, effort_minutes: null,
+      status: 'open', done_at: null, done_by: null, created_by: this.me()?.id ?? '',
+      created_at: new Date().toISOString(), deleted_at: null, ...patch,
+    };
+    const subtasks: Subtask[] = tpl.items.map((title, i) => ({
+      id: crypto.randomUUID(), todo_id: id, title, is_done: false, sort_order: i + 1, deleted_at: null,
+    }));
+    await this.db.transaction('rw', this.db.todos, this.db.subtasks, this.db.outbox, async () => {
+      await this.db.todos.put(row);
+      await this.record('todo', id, { ...patch });
+      for (const s of subtasks) {
+        await this.db.subtasks.put(s);
+        await this.record('subtask', s.id, {
+          todo_id: id, title: s.title, is_done: false, sort_order: s.sort_order, deleted_at: null,
+        });
+      }
+    });
+    // Siehe saveTemplate: die Bearbeitungsseite wird sofort geoeffnet und muss die Aufgabe schon finden.
+    this.allTodos.update((list) => [...list, row]);
+    this.allSubtasks.update((list) => [...list, ...subtasks]);
+    this.afterChange();
+    return id;
   }
 
   // ------------------------------------------------------------ Einstellungen

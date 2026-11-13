@@ -620,5 +620,69 @@ await test('Ruhezeiten: nachts nichts, morgens eine Sammelmeldung, Einzelnes unv
   await db.query('update public.profiles set quiet_hours = true');
 });
 
+// ---------------------------------------------------------------- Version 1.0.8
+
+await test('Vorlagen: anlegen, aendern, loeschen, nur im eigenen Haushalt sichtbar', async () => {
+  const id = uuid();
+  const cat = (await pull(F)).categories[0].id;
+  const fields = { title: 'Urlaub packen', description: 'Vor jeder Reise', category_id: cat, effort_minutes: 30,
+    important: true, items: ['Pass', 'Ladekabel'], deleted_at: null };
+  const before = (await pull(F)).cursor;
+  const r = await push(F, op('template', id, fields));
+  assert.deepEqual(r.rejected, []);
+  const mine = await pull(M, before);
+  assert.equal(mine.templates.length, 1);
+  assert.deepEqual(mine.templates[0].items, ['Pass', 'Ladekabel']);
+  assert.equal(mine.templates[0].important, true);
+  assert.ok(mine.cursor > before);
+  assert.equal((await pull(X)).templates.length, 0);
+
+  await push(M, op('template', id, { ...fields, items: ['Pass'], title: 'Packen' }));
+  const changed = (await pull(F, mine.cursor)).templates[0];
+  assert.equal(changed.title, 'Packen');
+  assert.deepEqual(changed.items, ['Pass']);
+
+  await push(F, op('template', id, { ...fields, deleted_at: '2026-01-05T00:00:00Z' }));
+  assert.ok((await rows('select deleted_at from public.templates where id = $1', [id]))[0].deleted_at);
+});
+
+await test('Vorlagen: aelterer Datensatz verliert, Fremde koennen nichts aendern', async () => {
+  const id = uuid();
+  await push(F, op('template', id, { title: 'Neu', items: [] }, '2026-01-10T00:00:00Z'));
+  await push(M, op('template', id, { title: 'Alt', items: [] }, '2026-01-09T00:00:00Z'));
+  await push(X, op('template', id, { title: 'Fremd', items: [] }, '2026-01-11T00:00:00Z'));
+  assert.equal((await rows('select title from public.templates where id = $1', [id]))[0].title, 'Neu');
+});
+
+await test('Vorlagen: Unsinn und fremde Kategorie werden abgelehnt, direkter Schreibzugriff nicht erlaubt', async () => {
+  const bad = [
+    { title: '', items: [] },
+    { title: 'x', items: 'Pass' },
+    { title: 'x', items: [1, 2] },
+    { title: 'x', items: [' '] },
+    { title: 'x', items: Array.from({ length: 101 }, (_, i) => `P${i}`) },
+    { title: 'x', items: [], effort_minutes: 0 },
+  ];
+  for (const fields of bad) {
+    const r = await push(F, op('template', uuid(), fields));
+    assert.equal(r.rejected.length, 1, JSON.stringify(fields));
+  }
+  const foreignCat = uuid();
+  await push(X, op('category', foreignCat, { name: 'Fremd', sort_order: 1 }));
+  assert.equal((await push(F, op('template', uuid(), { title: 'x', items: [], category_id: foreignCat }))).rejected.length, 1);
+  await assert.rejects(as(F, () => db.query(`insert into public.templates (id, household_id, title)
+    values ($1, (select household_id from public.profiles where display_name = 'Freddy'), 'x')`, [uuid()])));
+});
+
+await test('Vorlage starten: Aufgabe und Unteraufgaben im selben Push kommen an', async () => {
+  const todoId = uuid();
+  const r = await push(F,
+    op('todo', todoId, { title: 'Urlaub packen', effort_minutes: 30 }),
+    op('subtask', uuid(), { todo_id: todoId, title: 'Pass', is_done: false, sort_order: 1, deleted_at: null }),
+    op('subtask', uuid(), { todo_id: todoId, title: 'Ladekabel', is_done: false, sort_order: 2, deleted_at: null }));
+  assert.deepEqual(r.rejected, []);
+  assert.deepEqual((await rows('select title from public.subtasks where todo_id = $1 order by sort_order', [todoId])).map((s) => s.title), ['Pass', 'Ladekabel']);
+});
+
 console.log(`\n${passed} Tests bestanden`);
 process.exit(0);
