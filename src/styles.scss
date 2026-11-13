@@ -479,3 +479,8 @@ input[type='radio'] {
   font-size: 0.75rem;
   padding-inline: 4px;
 }
+
+/* Version 1.0.9: gleicher Abstand unter "Ich hab Zeit"/"Vorlagen" wie unter der Suche */
+.quick-links {
+  margin-bottom: var(--gap);
+}
