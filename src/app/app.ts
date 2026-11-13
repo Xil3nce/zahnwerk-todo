@@ -18,9 +18,15 @@ import { Login } from './pages/login';
           <aside class="update-banner row between" role="status">
             <span>Update verfügbar: Version {{ release.version }}</span>
             <span class="row">
-              <a class="button primary" [href]="release.url" target="_blank" rel="noopener">Herunterladen</a>
+              <button class="primary" type="button" [disabled]="updates.phase() === 'downloading' || updates.phase() === 'installing'"
+                (click)="updates.install()">{{ installLabel() }}</button>
               <button type="button" (click)="updates.dismiss()">Später</button>
             </span>
+            @if (updates.phase() === 'permission') {
+              <span class="update-note">Zahnwerk darf noch keine Updates installieren.
+                <button type="button" (click)="updates.allowInstall()">Erlauben</button></span>
+            }
+            @if (updates.installError(); as message) { <span class="error update-note" role="alert">{{ message }}</span> }
           </aside>
         }
         <main class="page"><router-outlet /></main>
@@ -44,6 +50,14 @@ export class App implements OnInit {
   private readonly theme = inject(Theme);
   protected readonly updates = inject(Updates);
 
+  /** Text des Update-Knopfs je nach Stand. */
+  protected installLabel(): string {
+    const progress = this.updates.progress();
+    if (this.updates.phase() === 'installing') return 'Wird installiert…';
+    if (this.updates.phase() === 'downloading') return progress !== null && progress >= 0 ? `Lade… ${Math.round(progress * 100)} %` : 'Lade…';
+    return 'Installieren';
+  }
+
   constructor() {
     // Beim Anmelden und bei jedem Start: Geraet registrieren und synchronisieren.
     effect(() => {
@@ -63,6 +77,7 @@ export class App implements OnInit {
       await CapApp.addListener('resume', () => {
         void this.store.sync();
         void this.updates.check();
+        void this.updates.resume();
       });
       await CapApp.addListener('backButton', ({ canGoBack }) => {
         if (canGoBack && this.router.url !== '/') history.back();

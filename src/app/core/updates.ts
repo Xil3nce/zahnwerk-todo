@@ -1,6 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import { App as CapApp } from '@capacitor/app';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, PluginListenerHandle, registerPlugin } from '@capacitor/core';
 import { UPDATE_REPO } from './config';
 
 export interface ReleaseInfo {
@@ -8,7 +8,24 @@ export interface ReleaseInfo {
   /** Direkter APK-Download, sonst die Release-Seite. */
   url: string;
   notes: string;
+  /** Nur wenn das Release eine APK hat: Download-Adresse, API-Adresse (Ausweichweg) und Groesse in Bytes. */
+  apk: { url: string; apiUrl: string | null; size: number } | null;
 }
+
+type InstallStatus = 'pending' | 'success' | 'aborted' | 'conflict' | 'failed';
+
+/** Natives Plugin (android/.../AppUpdaterPlugin.java): Download in den App-Cache und System-Installer. */
+interface AppUpdaterPlugin {
+  canInstall(): Promise<{ allowed: boolean }>;
+  openInstallSettings(): Promise<void>;
+  install(options: { url: string; apiUrl?: string; size?: number }): Promise<void>;
+  addListener(event: 'progress', fn: (data: { value: number }) => void): Promise<PluginListenerHandle>;
+  addListener(event: 'installStatus', fn: (data: { status: InstallStatus; message?: string }) => void): Promise<PluginListenerHandle>;
+}
+const AppUpdater = registerPlugin<AppUpdaterPlugin>('AppUpdater');
+
+/** idle: nichts laeuft; permission: Erlaubnis fuer "Unbekannte Apps installieren" fehlt. */
+export type InstallPhase = 'idle' | 'permission' | 'downloading' | 'installing';
 
 const CHECK_EVERY_MS = 6 * 3_600_000;
 const LAST_CHECK_KEY = 'zahnwerk.updateCheckedAt';
@@ -32,13 +49,20 @@ export function isNewer(latest: string, current: string): boolean {
 export function pickRelease(json: unknown): ReleaseInfo | null {
   const r = json as {
     tag_name?: string; html_url?: string; body?: string | null; draft?: boolean; prerelease?: boolean;
-    assets?: { name?: string; browser_download_url?: string }[];
+    assets?: { name?: string; browser_download_url?: string; url?: string; size?: number }[];
   } | null;
   if (!r || r.draft || r.prerelease || !parseVersion(r.tag_name)) return null;
-  const apk = r.assets?.find((a) => a.name?.toLowerCase().endsWith('.apk') && a.browser_download_url);
-  const url = apk?.browser_download_url ?? r.html_url;
+  const asset = r.assets?.find((a) => a.name?.toLowerCase().endsWith('.apk') && a.browser_download_url?.startsWith('https://'));
+  const url = asset?.browser_download_url ?? r.html_url;
   if (!url) return null;
-  return { version: r.tag_name!.replace(/^v/, ''), url, notes: (r.body ?? '').trim() };
+  const apk = asset
+    ? {
+        url: asset.browser_download_url!,
+        apiUrl: asset.url?.startsWith('https://api.github.com/') ? asset.url : null,
+        size: asset.size && asset.size > 0 ? asset.size : 0,
+      }
+    : null;
+  return { version: r.tag_name!.replace(/^v/, ''), url, notes: (r.body ?? '').trim(), apk };
 }
 
 function storageGet(key: string): string | null {
@@ -69,6 +93,11 @@ export class Updates {
   readonly banner = signal<ReleaseInfo | null>(null);
   readonly checking = signal(false);
   readonly lastError = signal<string | null>(null);
+  readonly phase = signal<InstallPhase>('idle');
+  /** Download-Fortschritt 0..1, -1 bei unbekannter Groesse, null wenn nichts laedt. */
+  readonly progress = signal<number | null>(null);
+  readonly installError = signal<string | null>(null);
+  private listening = false;
 
   async check(force = false): Promise<void> {
     if (!Capacitor.isNativePlatform() || this.checking()) return;
@@ -99,6 +128,74 @@ export class Updates {
     } finally {
       this.checking.set(false);
     }
+  }
+
+  /**
+   * Update installieren wie bei der Vorrat-App: APK in den App-Cache laden (immer dieselbe Datei,
+   * nichts in "Downloads") und an den System-Installer geben. Ohne APK im Release: Release-Seite oeffnen.
+   */
+  async install(): Promise<void> {
+    const release = this.latest();
+    if (!release || this.phase() === 'downloading' || this.phase() === 'installing') return;
+    this.installError.set(null);
+    if (!Capacitor.isNativePlatform() || !release.apk) {
+      window.open(release.url, '_blank', 'noopener');
+      return;
+    }
+    try {
+      await this.listen();
+      if (!(await AppUpdater.canInstall()).allowed) {
+        this.phase.set('permission');
+        return;
+      }
+      this.phase.set('downloading');
+      this.progress.set(release.apk.size > 0 ? 0 : -1);
+      await AppUpdater.install({ url: release.apk.url, apiUrl: release.apk.apiUrl ?? undefined, size: release.apk.size });
+      // Der Installer meldet sich ueber "installStatus"; bis dahin laeuft die Installation.
+      // (Meldete der Installer schon vorher Fehler/Abbruch, ist die Phase nicht mehr 'downloading'.)
+      if (this.phase() === 'downloading') this.phase.set('installing');
+    } catch (error) {
+      console.warn('update install failed', error);
+      const code = (error as { code?: string }).code;
+      this.phase.set('idle');
+      this.installError.set(code === 'download'
+        ? 'Download fehlgeschlagen. Besteht eine Verbindung?'
+        : 'Die Installation konnte nicht gestartet werden.');
+    } finally {
+      this.progress.set(null);
+    }
+  }
+
+  /** Fuehrt in die Systemeinstellung "Unbekannte Apps installieren". */
+  async allowInstall(): Promise<void> {
+    try {
+      await AppUpdater.openInstallSettings();
+    } catch {
+      this.installError.set('Bitte in den Android-Einstellungen erlauben, dass Zahnwerk Apps installieren darf.');
+    }
+  }
+
+  /** Beim Zurueckkehren in die App: wurde die Erlaubnis erteilt, gleich weitermachen. */
+  async resume(): Promise<void> {
+    if (this.phase() !== 'permission' || !Capacitor.isNativePlatform()) return;
+    if ((await AppUpdater.canInstall()).allowed) {
+      this.phase.set('idle');
+      await this.install();
+    }
+  }
+
+  private async listen(): Promise<void> {
+    if (this.listening) return;
+    this.listening = true;
+    await AppUpdater.addListener('progress', ({ value }) => {
+      if (this.phase() === 'downloading') this.progress.set(value);
+    });
+    await AppUpdater.addListener('installStatus', ({ status }) => {
+      if (status === 'pending') return;
+      this.phase.set('idle');
+      if (status === 'conflict') this.installError.set('Das Update passt nicht zur installierten App (andere Signatur).');
+      else if (status === 'failed') this.installError.set('Die Installation ist fehlgeschlagen.');
+    });
   }
 
   dismiss(): void {

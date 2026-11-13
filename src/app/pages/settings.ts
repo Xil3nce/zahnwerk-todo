@@ -53,7 +53,19 @@ type Toggle = 'notify_done' | 'notify_new' | 'notify_changed' | 'notify_due_toda
         <p class="meta">Installierte Version: {{ updates.current() ?? '…' }}</p>
         @if (updates.latest(); as release) {
           <p class="notice">Version {{ release.version }} ist verfügbar.</p>
-          <a class="button primary" [href]="release.url" target="_blank" rel="noopener">Update herunterladen</a>
+          <button class="primary" type="button" [disabled]="updates.phase() === 'downloading' || updates.phase() === 'installing'"
+            (click)="updates.install()">
+            @switch (updates.phase()) {
+              @case ('downloading') { Lade…@if ((updates.progress() ?? -1) >= 0) { {{ percent() }} % } }
+              @case ('installing') { Wird installiert… }
+              @default { Update installieren }
+            }
+          </button>
+          @if (updates.phase() === 'permission') {
+            <p class="notice">Zahnwerk darf noch keine Updates installieren. Erlaube es einmalig in den Android-Einstellungen.</p>
+            <button type="button" (click)="updates.allowInstall()">Installieren erlauben</button>
+          }
+          @if (updates.installError(); as message) { <p class="error" role="alert">{{ message }}</p> }
         } @else if (updates.current() && !updates.checking() && !updates.lastError()) {
           <p class="meta">Zahnwerk ist auf dem neuesten Stand.</p>
         }
@@ -83,6 +95,9 @@ export class Settings {
   protected readonly theme = inject(Theme);
   private readonly push = inject(Push);
   protected readonly updates = inject(Updates);
+  protected percent(): number {
+    return Math.round((this.updates.progress() ?? 0) * 100);
+  }
   protected readonly native = Capacitor.isNativePlatform();
 
   protected readonly saveError = signal(false);

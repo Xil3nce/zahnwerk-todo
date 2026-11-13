@@ -20,6 +20,12 @@ $repo = $Matches[1]
 
 if (-not $Notes) { $Notes = "Zahnwerk $version" }
 $ErrorActionPreference = 'Continue'
-gh release create "v$version" $apk --repo $repo --title "Zahnwerk $version" --notes $Notes
+# Immer derselbe Dateiname im Release ("zahnwerk.apk"): Ein Download von Hand ersetzt so die alte Datei,
+# statt jedes Mal eine weitere abzulegen. Die App selbst laedt in ihren Cache (AppUpdaterPlugin).
+$upload = Join-Path $root 'dist-apk\upload'
+New-Item -ItemType Directory -Force $upload | Out-Null
+$fixed = Join-Path $upload 'zahnwerk.apk'
+Copy-Item $apk $fixed -Force
+gh release create "v$version" $fixed --repo $repo --title "Zahnwerk $version" --notes $Notes
 if ($LASTEXITCODE -ne 0) { throw 'gh release create fehlgeschlagen' }
 Write-Output "Veroeffentlicht: v$version in $repo"

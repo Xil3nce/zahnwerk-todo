@@ -484,3 +484,9 @@ input[type='radio'] {
 .quick-links {
   margin-bottom: var(--gap);
 }
+
+/* Version 1.1.0: Hinweise zum Update-Installieren in der Leiste in eigener Zeile */
+.update-note {
+  flex-basis: 100%;
+  font-weight: 400;
+}

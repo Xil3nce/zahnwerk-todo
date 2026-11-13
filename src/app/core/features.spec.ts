@@ -201,10 +201,19 @@ describe('Update-Hinweis', () => {
   it('nimmt die APK aus dem Release, sonst die Release-Seite', () => {
     const release = {
       tag_name: 'v1.0.6', html_url: 'https://github.com/x/y/releases/tag/v1.0.6', body: ' Neu: Ideen ',
-      assets: [{ name: 'notes.txt', browser_download_url: 'n' }, { name: 'zahnwerk-1.0.6.apk', browser_download_url: 'https://dl/apk' }],
+      assets: [
+        { name: 'notes.txt', browser_download_url: 'n' },
+        { name: 'zahnwerk.apk', browser_download_url: 'https://dl/apk', url: 'https://api.github.com/repos/x/y/releases/assets/1', size: 4096 },
+      ],
     };
-    expect(pickRelease(release)).toEqual({ version: '1.0.6', url: 'https://dl/apk', notes: 'Neu: Ideen' });
-    expect(pickRelease({ ...release, assets: [] })?.url).toBe(release.html_url);
+    expect(pickRelease(release)).toEqual({
+      version: '1.0.6', url: 'https://dl/apk', notes: 'Neu: Ideen',
+      apk: { url: 'https://dl/apk', apiUrl: 'https://api.github.com/repos/x/y/releases/assets/1', size: 4096 },
+    });
+    expect(pickRelease({ ...release, assets: [] })).toEqual({ version: '1.0.6', url: release.html_url, notes: 'Neu: Ideen', apk: null });
+    // Fremde API-Adressen werden nicht als Ausweichweg genutzt, fehlende Groesse ist 0.
+    expect(pickRelease({ ...release, assets: [{ name: 'a.apk', browser_download_url: 'https://dl/a', url: 'https://evil/x' }] })?.apk)
+      .toEqual({ url: 'https://dl/a', apiUrl: null, size: 0 });
     expect(pickRelease({ ...release, prerelease: true })).toBeNull();
     expect(pickRelease({ ...release, draft: true })).toBeNull();
     expect(pickRelease({ ...release, tag_name: 'nightly' })).toBeNull();

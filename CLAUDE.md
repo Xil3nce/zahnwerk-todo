@@ -30,6 +30,7 @@ App auf Deutsch, Sideload-APK für zwei Personen, keine kostenpflichtigen Dienst
 - Papierkorb: `deleted_at` bleibt 30 Tage wiederherstellbar; `private.cleanup()` löscht danach endgültig.
 - Vorlagen (`templates`, ab 1.0.8): ganzer Datensatz LWW wie Kategorien, `items` = Checkliste (max. 100 Texte); „Starten“ legt clientseitig Aufgabe + Unteraufgaben in einer Transaktion an, keine Verknüpfung auf dem Server.
 - „Ich hab Zeit“ (`/zeit`): `suggestForTime` in `views.ts`, nur Aufgaben mit `effort_minutes`; Rang überfällig → heute → wichtig → Woche → später → ohne Datum.
+- Selbst-Update (ab 1.1.0) wie Vorrat: `AppUpdaterPlugin.java` lädt die Release-APK in den App-Cache (fester Name) und installiert per PackageInstaller-Session; Release-Asset heißt immer `zahnwerk.apk`.
 - Spracheingabe: `@capgo/capacitor-speech-recognition` (v8 passt zu Capacitor 8).
 - Farben und Abstände nur über CSS-Variablen in `src/styles.scss`.
 
